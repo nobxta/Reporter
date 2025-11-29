@@ -57,6 +57,16 @@ SMTP_FROM=your-email@gmail.com
 TELEGRAM_BOT_TOKEN=your-bot-token-here
 
 # ============================================
+# TELEGRAM MTProto CONFIGURATION (REQUIRED for username resolution)
+# ============================================
+# Get these from https://my.telegram.org/apps
+# API ID (numeric)
+TELEGRAM_API_ID=your-api-id-here
+
+# API Hash (string)
+TELEGRAM_API_HASH=your-api-hash-here
+
+# ============================================
 # OPTIONAL FALLBACK VALUES (Can be managed in Settings page)
 # ============================================
 # These are ONLY used as fallbacks if Settings table is empty or fails to load
@@ -99,6 +109,8 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 | `SMTP_USER` | Your email address | `your-email@gmail.com` |
 | `SMTP_PASSWORD` | Email password/app password | `abcd efgh ijkl mnop` |
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz` |
+| `TELEGRAM_API_ID` | API ID from my.telegram.org | `26481096` |
+| `TELEGRAM_API_HASH` | API Hash from my.telegram.org | `490e357d5a2d4dae14b23fa74087f17d` |
 
 ### Optional Fallback Variables (Managed in Settings Page)
 
@@ -143,6 +155,14 @@ These variables are **only used as fallbacks** if the Settings table is empty or
    - Option 2: Send a message to your bot, then check the chat ID
 5. Add chat ID to `TELEGRAM_CHAT_ID`
 
+### 3.1. Telegram MTProto Setup (Required for Username Resolution)
+1. Go to https://my.telegram.org/apps
+2. Log in with your phone number
+3. Create a new application (or use existing)
+4. Copy the **API ID** (numeric) to `TELEGRAM_API_ID`
+5. Copy the **API Hash** (string) to `TELEGRAM_API_HASH`
+6. These are used for MTProto username resolution (works better than Bot API)
+
 ### 4. Check Interval
 - Set `CHECK_INTERVAL_MINUTES` to a value between 1 and 5
 - Recommended: `2` (checks every 2 minutes)
@@ -179,6 +199,13 @@ SMTP_PASSWORD=abcd efgh ijkl mnop
 # REQUIRED - Telegram Bot
 # ============================================
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+
+# ============================================
+# REQUIRED - Telegram MTProto (for username resolution)
+# ============================================
+# Get from https://my.telegram.org/apps
+TELEGRAM_API_ID=26481096
+TELEGRAM_API_HASH=490e357d5a2d4dae14b23fa74087f17d
 
 # ============================================
 # OPTIONAL - Email Settings
