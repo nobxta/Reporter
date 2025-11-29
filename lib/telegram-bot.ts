@@ -41,24 +41,52 @@ export function formatBanNotification(target: string, reportId: string): string 
     `Time: ${new Date().toLocaleString()}`;
 }
 
-export function formatAutoBanNotification(target: string, reportId: string): string {
-  return `✅ <b>Target Taken Down!</b>\n\n` +
+export function formatAutoBanNotification(
+  target: string,
+  reportId: string,
+  details?: ChatDetails
+): string {
+  let message = `✅ <b>Target Taken Down!</b>\n\n` +
     `Target: <code>${target}</code>\n` +
     `Report ID: ${reportId}\n` +
-    `Status: Banned or Unavailable\n` +
-    `Detected: ${new Date().toLocaleString()}`;
+    `Status: Banned or Unavailable\n`;
+  
+  if (details) {
+    if (details.id) {
+      message += `Chat ID: <code>${details.id}</code>\n`;
+    }
+    if (details.type) {
+      message += `Type: ${details.type}\n`;
+    }
+  }
+  
+  message += `Detected: ${new Date().toLocaleString()}`;
+  return message;
+}
+
+export interface ChatDetails {
+  id: string | number;
+  type: "private" | "group" | "supergroup" | "channel";
+  title?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  membersCount?: number;
+  description?: string;
+  isBanned: boolean;
+  error?: string;
 }
 
 /**
- * Check if a username/channel is banned or unavailable
+ * Get detailed information about a chat/user/channel
  * @param botToken Telegram bot token
  * @param target Username or channel link (e.g., @username or https://t.me/channel)
- * @returns Object with isBanned status and error message if any
+ * @returns Detailed chat information
  */
-export async function checkUsernameStatus(
+export async function getChatDetails(
   botToken: string,
   target: string
-): Promise<{ isBanned: boolean; error?: string }> {
+): Promise<ChatDetails> {
   try {
     const bot = initializeBot(botToken, "");
     
@@ -74,10 +102,31 @@ export async function checkUsernameStatus(
     const chatId = username.replace("@", "");
     
     try {
-      // Try to get chat information
-      await bot.telegram.getChat(chatId);
-      // If successful, the chat exists and is accessible
-      return { isBanned: false };
+      // Get chat information
+      const chat = await bot.telegram.getChat(chatId);
+      
+      // Get member count for channels/groups
+      let membersCount: number | undefined;
+      if (chat.type === "channel" || chat.type === "supergroup") {
+        try {
+          const memberCount = await bot.telegram.getChatMembersCount(chatId);
+          membersCount = memberCount;
+        } catch (e) {
+          // Member count might not be available
+        }
+      }
+      
+      return {
+        id: chat.id,
+        type: chat.type as any,
+        title: "title" in chat ? chat.title : undefined,
+        username: "username" in chat ? chat.username : undefined,
+        firstName: "first_name" in chat ? chat.first_name : undefined,
+        lastName: "last_name" in chat ? chat.last_name : undefined,
+        membersCount,
+        description: "description" in chat ? chat.description : undefined,
+        isBanned: false,
+      };
     } catch (error: any) {
       // Check for specific error codes that indicate ban/unavailability
       const errorMessage = error?.response?.description || error?.message || "";
@@ -89,26 +138,62 @@ export async function checkUsernameStatus(
       
       if (error?.response?.error_code === 404) {
         // Chat not found - likely banned or deleted
-        return { isBanned: true, error: "Chat not found (likely banned or deleted)" };
+        return {
+          id: chatId,
+          type: "channel",
+          username: username.replace("@", ""),
+          isBanned: true,
+          error: "Chat not found (likely banned or deleted)",
+        };
       }
       
       if (error?.response?.error_code === 403) {
         // Forbidden - could be private or bot doesn't have access
-        // We'll treat this as "not banned" since we can't be sure
-        return { isBanned: false, error: "Forbidden (private or no access)" };
+        return {
+          id: chatId,
+          type: "channel",
+          username: username.replace("@", ""),
+          isBanned: false,
+          error: "Forbidden (private or no access)",
+        };
       }
       
-      // For other errors, we'll assume it's still active
-      // but log the error for debugging
+      // For other errors
       console.warn(`Error checking ${target}:`, errorMessage);
-      return { isBanned: false, error: errorMessage };
+      return {
+        id: chatId,
+        type: "channel",
+        username: username.replace("@", ""),
+        isBanned: false,
+        error: errorMessage,
+      };
     }
   } catch (error: any) {
-    console.error("Error in checkUsernameStatus:", error);
+    console.error("Error in getChatDetails:", error);
     return {
+      id: target,
+      type: "channel",
       isBanned: false,
-      error: error.message || "Failed to check username status",
+      error: error.message || "Failed to get chat details",
     };
   }
+}
+
+/**
+ * Check if a username/channel is banned or unavailable
+ * @param botToken Telegram bot token
+ * @param target Username or channel link (e.g., @username or https://t.me/channel)
+ * @returns Object with isBanned status and error message if any
+ */
+export async function checkUsernameStatus(
+  botToken: string,
+  target: string
+): Promise<{ isBanned: boolean; error?: string; details?: ChatDetails }> {
+  const details = await getChatDetails(botToken, target);
+  return {
+    isBanned: details.isBanned,
+    error: details.error,
+    details,
+  };
 }
 

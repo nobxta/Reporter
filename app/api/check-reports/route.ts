@@ -85,8 +85,12 @@ export async function GET(request: NextRequest) {
           // Mark as banned
           await updateReportStatus(report.id, "banned");
 
-          // Send notification
-          const notification = formatAutoBanNotification(report.target, report.id);
+          // Send notification with details
+          const notification = formatAutoBanNotification(
+            report.target,
+            report.id,
+            checkResult.details
+          );
           await sendTelegramNotification(botToken, chatId, notification);
 
           bannedCount++;
