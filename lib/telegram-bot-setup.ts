@@ -115,11 +115,41 @@ export function setupBotCommands(botToken: string) {
   // Handle /info command - Get detailed info about target
   bot.command("info", async (ctx) => {
     const args = ctx.message.text?.split(" ").slice(1);
+    
+    // If no args, show info about the user who sent the command
     if (!args || args.length === 0 || !args[0] || args[0].trim() === "" || args[0] === "@") {
+      // Get info about the user who sent the command
+      if (ctx.from) {
+        try {
+          const userChat = await bot.telegram.getChat(ctx.from.id);
+          let message = `📋 <b>Your Information</b>\n\n`;
+          
+          message += `User ID: <code>${ctx.from.id}</code>\n`;
+          if (ctx.from.first_name) {
+            message += `First Name: ${ctx.from.first_name}\n`;
+          }
+          if (ctx.from.last_name) {
+            message += `Last Name: ${ctx.from.last_name}\n`;
+          }
+          if (ctx.from.username) {
+            message += `Username: @${ctx.from.username}\n`;
+          }
+          message += `Type: User\n`;
+          message += `Status: ✅ ACTIVE\n`;
+          message += `\nChecked: ${new Date().toLocaleString()}`;
+          
+          await ctx.reply(message, { parse_mode: "HTML" });
+          return;
+        } catch (e) {
+          // Fall through to show usage
+        }
+      }
+      
       await ctx.reply(
         "❌ Please provide a target to get info.\n\n" +
         "Usage: <code>/info @username</code>\n" +
-        "Or: <code>/info https://t.me/channel</code>",
+        "Or: <code>/info https://t.me/channel</code>\n" +
+        "Or: <code>/info</code> (shows your own info)",
         { parse_mode: "HTML" }
       );
       return;
@@ -151,13 +181,18 @@ export function setupBotCommands(botToken: string) {
         message += `Status: ✅ <b>ACTIVE</b>\n`;
       }
 
-      // Only show Chat ID if it's a numeric ID (not username)
+      // Show Chat ID if it's a numeric ID (not username)
       if (details.id && (typeof details.id === "number" || (typeof details.id === "string" && /^-?\d+$/.test(details.id)))) {
         message += `Chat ID: <code>${details.id}</code>\n`;
       }
+      
       if (details.type) {
-        message += `Type: ${details.type}\n`;
+        const typeLabel = details.type === "private" ? "User" : 
+                         details.type === "supergroup" ? "Supergroup" :
+                         details.type === "group" ? "Group" : "Channel";
+        message += `Type: ${typeLabel}\n`;
       }
+      
       if (details.title) {
         message += `Title: ${details.title}\n`;
       }
@@ -177,15 +212,24 @@ export function setupBotCommands(botToken: string) {
         message += `\nDescription:\n${details.description}\n`;
       }
       
-      // Handle errors
+      // Handle errors with better context
       if (details.error) {
         if (details.isBanned) {
           message += `\nReason: ${details.error}\n`;
-        } else if (details.error.includes("chat not found") || details.error.includes("chat_id is empty")) {
-          message += `\n⚠️ Note: Cannot access this chat. It may be:\n` +
-            `• Private channel/group\n` +
-            `• Bot doesn't have access\n` +
-            `• Invalid username\n`;
+        } else if (details.type === "private" && details.error.includes("messaged the bot")) {
+          message += `\n⚠️ <b>Note:</b> To get user info, the user must have messaged this bot at least once.\n` +
+            `This is a Telegram API limitation for privacy.\n`;
+        } else if (details.error.includes("chat not found") || details.error.includes("chat_id is empty") || details.error.includes("username not occupied")) {
+          if (details.type === "private") {
+            message += `\n⚠️ <b>Note:</b> Cannot access user info.\n` +
+              `• User must have messaged the bot first\n` +
+              `• Or username may not exist\n`;
+          } else {
+            message += `\n⚠️ <b>Note:</b> Cannot access this chat. It may be:\n` +
+              `• Private channel/group\n` +
+              `• Bot doesn't have access\n` +
+              `• Invalid username\n`;
+          }
         } else {
           message += `\n⚠️ Note: ${details.error}\n`;
         }

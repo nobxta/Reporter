@@ -110,9 +110,15 @@ export async function getChatDetails(
       };
     }
     
+    // Check if target is a numeric ID (user ID)
+    const isNumericId = /^-?\d+$/.test(chatId);
+    
     try {
       // Get chat information
-      const chat = await bot.telegram.getChat(chatId);
+      // If it's a numeric ID, use it directly; otherwise use username
+      const chat = isNumericId 
+        ? await bot.telegram.getChat(parseInt(chatId))
+        : await bot.telegram.getChat(chatId);
       
       // Get member count for channels/groups
       let membersCount: number | undefined;
@@ -125,13 +131,21 @@ export async function getChatDetails(
         }
       }
       
+      // For users, get additional info
+      let firstName: string | undefined;
+      let lastName: string | undefined;
+      if (chat.type === "private") {
+        firstName = "first_name" in chat ? chat.first_name : undefined;
+        lastName = "last_name" in chat ? chat.last_name : undefined;
+      }
+      
       return {
         id: chat.id,
         type: chat.type as any,
         title: "title" in chat ? chat.title : undefined,
         username: "username" in chat ? chat.username : undefined,
-        firstName: "first_name" in chat ? chat.first_name : undefined,
-        lastName: "last_name" in chat ? chat.last_name : undefined,
+        firstName,
+        lastName,
         membersCount,
         description: "description" in chat ? chat.description : undefined,
         isBanned: false,
@@ -147,9 +161,12 @@ export async function getChatDetails(
       
       if (error?.response?.error_code === 404) {
         // Chat not found - likely banned or deleted
+        // Try to determine if it's a user or channel based on error
+        const isUser = errorMessage.toLowerCase().includes("user") || 
+                      errorMessage.toLowerCase().includes("private");
         return {
           id: username.replace("@", ""),
-          type: "channel",
+          type: isUser ? "private" : "channel",
           username: username.replace("@", ""),
           isBanned: true,
           error: "Chat not found (likely banned or deleted)",
@@ -158,24 +175,33 @@ export async function getChatDetails(
       
       if (error?.response?.error_code === 403) {
         // Forbidden - could be private or bot doesn't have access
+        // For users, this usually means they haven't messaged the bot
+        const isUser = errorMessage.toLowerCase().includes("user") || 
+                      errorMessage.toLowerCase().includes("private");
         return {
           id: username.replace("@", ""),
-          type: "channel",
+          type: isUser ? "private" : "channel",
           username: username.replace("@", ""),
           isBanned: false,
-          error: "Forbidden (private channel or bot doesn't have access)",
+          error: isUser 
+            ? "User hasn't messaged the bot (required to get user info)"
+            : "Forbidden (private channel or bot doesn't have access)",
         };
       }
       
       if (error?.response?.error_code === 400) {
         // Bad Request - invalid username or chat_id is empty
-        if (errorMessage.toLowerCase().includes("chat_id is empty") || errorMessage.toLowerCase().includes("chat not found")) {
+        if (errorMessage.toLowerCase().includes("chat_id is empty") || 
+            errorMessage.toLowerCase().includes("chat not found") ||
+            errorMessage.toLowerCase().includes("username not occupied")) {
+          // Try to determine if it's a user or channel
+          // For users, Telegram API requires they've messaged the bot
           return {
             id: username.replace("@", ""),
-            type: "channel",
+            type: "private", // Assume user if we can't determine
             username: username.replace("@", ""),
             isBanned: false,
-            error: "Invalid username or chat not accessible",
+            error: "Cannot access user info. User must have messaged the bot first, or username may not exist.",
           };
         }
       }
@@ -184,7 +210,7 @@ export async function getChatDetails(
       console.warn(`Error checking ${target}:`, errorMessage);
       return {
         id: username.replace("@", ""),
-        type: "channel",
+        type: "channel", // Default to channel
         username: username.replace("@", ""),
         isBanned: false,
         error: errorMessage || "Unknown error",
