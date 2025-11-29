@@ -3,11 +3,10 @@ import type { Report, ReportStatus, Settings } from "./database.types";
 import { dbReportToApp, appReportToDb } from "./database.types";
 
 // Re-export types for compatibility
-export type { Report as AppReport } from "./database.types";
 export type { ReportStatus };
 
-// Convert database report to app format
-type AppReport = ReturnType<typeof dbReportToApp>;
+// Convert database report to app format - this is the AppReport type used throughout the app
+export type AppReport = ReturnType<typeof dbReportToApp>;
 
 export async function addReport(
   report: Omit<AppReport, "id" | "createdAt" | "status" | "emailSentAt" | "bannedAt" | "lastChecked">

@@ -32,7 +32,7 @@ export function setupBotCommands(botToken: string) {
 
   // Handle any other message
   bot.on("message", async (ctx) => {
-    if (!ctx.message.text?.startsWith("/")) {
+    if ("text" in ctx.message && ctx.message.text && !ctx.message.text.startsWith("/")) {
       await ctx.reply(
         "👋 Hello! Available commands:\n" +
         "/start - Verify bot is working\n" +

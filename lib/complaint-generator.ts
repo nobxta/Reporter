@@ -1,5 +1,11 @@
-import type { AppReport } from "./storage-supabase";
-type Report = Omit<AppReport, "id" | "createdAt" | "status" | "emailSentAt" | "bannedAt" | "lastChecked">;
+// Input type for complaint generation
+export interface ComplaintInput {
+  target: string;
+  violationType: string;
+  description: string;
+  evidence?: string | null;
+  notes?: string | null;
+}
 
 // Random name list for sign-off
 const RANDOM_NAMES = [
@@ -229,7 +235,7 @@ function generateSubject(targets: string[], violationType: string): string {
   return `URGENT: ${username} is doing ${violationDesc}`;
 }
 
-export function generateComplaint(report: Omit<Report, "id" | "createdAt" | "status" | "emailSentAt" | "bannedAt">) {
+export function generateComplaint(report: ComplaintInput) {
   // Parse inputs first
   const targets = parseTargets(report.target);
   const reportText = [report.description, report.notes].filter((t) => t && t.trim()).join(" ").trim();
