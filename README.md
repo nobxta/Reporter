@@ -125,9 +125,9 @@ For Gmail:
 The bot automatically checks if reported usernames/channels are banned at configurable intervals (1-5 minutes):
 
 - **Check Interval**: Set `CHECK_INTERVAL_MINUTES` in `.env.local` (default: 2 minutes, range: 1-5 minutes)
-- **On Vercel**: Uses Vercel Cron (runs every minute, respects CHECK_INTERVAL_MINUTES)
+- **External Cron Service**: Use cron-job.org or similar service to call `/api/check-reports` (see `CRON_SETUP.md` for setup)
 - **Manual Check**: Click "Check Now" button in History page
-- **External Cron**: Call `/api/check-reports` every minute with `Authorization: Bearer <CRON_SECRET>` header
+- **API Endpoint**: Call `/api/check-reports` with `Authorization: Bearer <CRON_SECRET>` header
 
 **Example Configuration:**
 ```env
