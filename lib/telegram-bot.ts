@@ -99,7 +99,16 @@ export async function getChatDetails(
     }
     
     // Remove @ for getChat
-    const chatId = username.replace("@", "");
+    const chatId = username.replace("@", "").trim();
+    
+    if (!chatId || chatId.length === 0) {
+      return {
+        id: target,
+        type: "channel",
+        isBanned: false,
+        error: "Invalid username: chat_id is empty",
+      };
+    }
     
     try {
       // Get chat information
@@ -139,7 +148,7 @@ export async function getChatDetails(
       if (error?.response?.error_code === 404) {
         // Chat not found - likely banned or deleted
         return {
-          id: chatId,
+          id: username.replace("@", ""),
           type: "channel",
           username: username.replace("@", ""),
           isBanned: true,
@@ -150,22 +159,35 @@ export async function getChatDetails(
       if (error?.response?.error_code === 403) {
         // Forbidden - could be private or bot doesn't have access
         return {
-          id: chatId,
+          id: username.replace("@", ""),
           type: "channel",
           username: username.replace("@", ""),
           isBanned: false,
-          error: "Forbidden (private or no access)",
+          error: "Forbidden (private channel or bot doesn't have access)",
         };
+      }
+      
+      if (error?.response?.error_code === 400) {
+        // Bad Request - invalid username or chat_id is empty
+        if (errorMessage.toLowerCase().includes("chat_id is empty") || errorMessage.toLowerCase().includes("chat not found")) {
+          return {
+            id: username.replace("@", ""),
+            type: "channel",
+            username: username.replace("@", ""),
+            isBanned: false,
+            error: "Invalid username or chat not accessible",
+          };
+        }
       }
       
       // For other errors
       console.warn(`Error checking ${target}:`, errorMessage);
       return {
-        id: chatId,
+        id: username.replace("@", ""),
         type: "channel",
         username: username.replace("@", ""),
         isBanned: false,
-        error: errorMessage,
+        error: errorMessage || "Unknown error",
       };
     }
   } catch (error: any) {

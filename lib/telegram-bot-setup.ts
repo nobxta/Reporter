@@ -1,8 +1,6 @@
 import { Telegraf } from "telegraf";
 import { getChatDetails, checkUsernameStatus } from "@/lib/telegram-bot";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+import { getReports } from "@/lib/storage-supabase";
 
 /**
  * Initialize bot with command handlers
@@ -37,7 +35,7 @@ export function setupBotCommands(botToken: string) {
   // Handle /check command - Check if target is banned
   bot.command("check", async (ctx) => {
     const args = ctx.message.text?.split(" ").slice(1);
-    if (!args || args.length === 0) {
+    if (!args || args.length === 0 || !args[0] || args[0].trim() === "" || args[0] === "@") {
       await ctx.reply(
         "❌ Please provide a target to check.\n\n" +
         "Usage: <code>/check @username</code>\n" +
@@ -47,7 +45,14 @@ export function setupBotCommands(botToken: string) {
       return;
     }
 
-    const target = args.join(" ");
+    const target = args.join(" ").trim();
+    if (!target || target === "@" || target.length < 2) {
+      await ctx.reply(
+        "❌ Invalid target. Please provide a valid username or link.",
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
     
     try {
       await ctx.reply("🔍 Checking target...", { parse_mode: "HTML" });
@@ -60,7 +65,7 @@ export function setupBotCommands(botToken: string) {
           `Target: <code>${target}</code>\n` +
           `Status: Banned or Unavailable\n`;
         
-        if (details?.id) {
+        if (details?.id && typeof details.id !== "string") {
           message += `Chat ID: <code>${details.id}</code>\n`;
         }
         if (details?.error) {
@@ -75,7 +80,8 @@ export function setupBotCommands(botToken: string) {
           `Status: Active\n`;
         
         if (details) {
-          if (details.id) {
+          // Only show Chat ID if it's a numeric ID (not username)
+          if (details.id && (typeof details.id === "number" || (typeof details.id === "string" && /^-?\d+$/.test(details.id)))) {
             message += `Chat ID: <code>${details.id}</code>\n`;
           }
           if (details.type) {
@@ -85,13 +91,13 @@ export function setupBotCommands(botToken: string) {
             message += `Title: ${details.title}\n`;
           }
           if (details.membersCount !== undefined) {
-            message += `Members: ${details.membersCount.toLocaleString()}\n`;
+            message += `Members/Subscribers: ${details.membersCount.toLocaleString()}\n`;
           }
           if (details.username) {
             message += `Username: @${details.username}\n`;
           }
-          if (details.error) {
-            message += `Note: ${details.error}\n`;
+          if (details.error && !details.error.includes("chat not found") && !details.error.includes("chat_id is empty")) {
+            message += `⚠️ Note: ${details.error}\n`;
           }
         }
         message += `Checked: ${new Date().toLocaleString()}`;
@@ -109,7 +115,7 @@ export function setupBotCommands(botToken: string) {
   // Handle /info command - Get detailed info about target
   bot.command("info", async (ctx) => {
     const args = ctx.message.text?.split(" ").slice(1);
-    if (!args || args.length === 0) {
+    if (!args || args.length === 0 || !args[0] || args[0].trim() === "" || args[0] === "@") {
       await ctx.reply(
         "❌ Please provide a target to get info.\n\n" +
         "Usage: <code>/info @username</code>\n" +
@@ -119,7 +125,14 @@ export function setupBotCommands(botToken: string) {
       return;
     }
 
-    const target = args.join(" ");
+    const target = args.join(" ").trim();
+    if (!target || target === "@" || target.length < 2) {
+      await ctx.reply(
+        "❌ Invalid target. Please provide a valid username or link.",
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
     
     try {
       await ctx.reply("🔍 Fetching information...", { parse_mode: "HTML" });
@@ -138,7 +151,8 @@ export function setupBotCommands(botToken: string) {
         message += `Status: ✅ <b>ACTIVE</b>\n`;
       }
 
-      if (details.id) {
+      // Only show Chat ID if it's a numeric ID (not username)
+      if (details.id && (typeof details.id === "number" || (typeof details.id === "string" && /^-?\d+$/.test(details.id)))) {
         message += `Chat ID: <code>${details.id}</code>\n`;
       }
       if (details.type) {
@@ -162,8 +176,19 @@ export function setupBotCommands(botToken: string) {
       if (details.description) {
         message += `\nDescription:\n${details.description}\n`;
       }
-      if (details.error && !details.isBanned) {
-        message += `\n⚠️ Note: ${details.error}\n`;
+      
+      // Handle errors
+      if (details.error) {
+        if (details.isBanned) {
+          message += `\nReason: ${details.error}\n`;
+        } else if (details.error.includes("chat not found") || details.error.includes("chat_id is empty")) {
+          message += `\n⚠️ Note: Cannot access this chat. It may be:\n` +
+            `• Private channel/group\n` +
+            `• Bot doesn't have access\n` +
+            `• Invalid username\n`;
+        } else {
+          message += `\n⚠️ Note: ${details.error}\n`;
+        }
       }
       
       message += `\nChecked: ${new Date().toLocaleString()}`;
@@ -180,29 +205,39 @@ export function setupBotCommands(botToken: string) {
   // Handle /stats command - Get report statistics
   bot.command("stats", async (ctx) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/bot/stats`);
-      const data = await response.json();
+      // Get stats directly from database instead of API call
+      const reports = await getReports();
 
-      if (!data.success) {
-        await ctx.reply("❌ Failed to fetch statistics", { parse_mode: "HTML" });
-        return;
-      }
+      const total = reports.length;
+      const sent = reports.filter((r) => r.status === "sent").length;
+      const banned = reports.filter((r) => r.status === "banned").length;
+      const pending = reports.filter((r) => r.status === "pending").length;
 
-      const { stats } = data;
+      // Calculate success rate (banned / sent)
+      const successRate = sent > 0 ? Math.round((banned / sent) * 100) : 0;
+
+      // Get last 24h reports
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentReports = reports.filter(
+        (r) => new Date(r.createdAt) > last24h
+      );
+      const recentSent = recentReports.filter((r) => r.status === "sent").length;
+      const recentBanned = recentReports.filter((r) => r.status === "banned").length;
       
       let message = `📊 <b>Report Statistics</b>\n\n` +
-        `Total Reports: ${stats.total}\n` +
-        `✅ Sent: ${stats.sent}\n` +
-        `🎯 Banned: ${stats.banned}\n` +
-        `⏳ Pending: ${stats.pending}\n\n` +
-        `Success Rate: ${stats.successRate}%\n\n` +
+        `Total Reports: ${total}\n` +
+        `✅ Sent: ${sent}\n` +
+        `🎯 Banned: ${banned}\n` +
+        `⏳ Pending: ${pending}\n\n` +
+        `Success Rate: ${successRate}%\n\n` +
         `📈 Last 24h:\n` +
-        `• Reports: ${stats.last24h.reports}\n` +
-        `• Sent: ${stats.last24h.sent}\n` +
-        `• Banned: ${stats.last24h.banned}`;
+        `• Reports: ${recentReports.length}\n` +
+        `• Sent: ${recentSent}\n` +
+        `• Banned: ${recentBanned}`;
 
       await ctx.reply(message, { parse_mode: "HTML" });
     } catch (error: any) {
+      console.error("Error in /stats command:", error);
       await ctx.reply(
         `❌ Error fetching stats: ${error.message || "Unknown error"}`,
         { parse_mode: "HTML" }
