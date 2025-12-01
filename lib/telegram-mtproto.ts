@@ -296,6 +296,7 @@ export async function getMTProtoChatDetails(
       }
 
       // Check for banned/unavailable errors (permanent - should be "banned")
+      const errorMessageLower = errorMessage.toLowerCase();
       const isBannedError = 
         errorMessage.includes("USERNAME_NOT_OCCUPIED") ||
         errorMessage.includes("USERNAME_INVALID") ||
@@ -305,13 +306,21 @@ export async function getMTProtoChatDetails(
         errorMessage.includes("USER_DELETED") ||
         errorMessage.includes("USER_BANNED_IN_CHANNEL") ||
         errorMessage.includes("CHANNEL_PUBLIC_GROUP_NA") ||
-        errorMessage.includes("not found") ||
+        errorMessageLower.includes("not found") ||
+        errorMessageLower.includes("cannot find any entity") ||
+        errorMessageLower.includes("no user has") ||
+        errorMessageLower.includes("no channel has") ||
+        errorMessageLower.includes("entity corresponding to") ||
+        errorMessageLower.includes("does not exist") ||
+        errorMessageLower.includes("doesn't exist") ||
         errorCode === 400 || // Bad Request often means invalid/banned
         errorCode === 404 || // Not Found
         errorType === "UsernameNotOccupiedError" ||
         errorType === "ChannelInvalidError" ||
-        (errorMessage.includes("username") && errorMessage.includes("invalid")) ||
-        (errorMessage.includes("channel") && errorMessage.includes("invalid"));
+        errorType === "UserDeactivatedError" ||
+        errorType === "PeerIdInvalidError" ||
+        (errorMessageLower.includes("username") && errorMessageLower.includes("invalid")) ||
+        (errorMessageLower.includes("channel") && errorMessageLower.includes("invalid"));
 
       if (isBannedError) {
         return {
@@ -384,16 +393,69 @@ export async function getMTProtoChatDetails(
   } catch (error: any) {
     console.error("Error in getMTProtoChatDetails:", error);
     const errorMessage = error?.message || error?.toString() || "";
+    const errorCode = error?.code || error?.errorCode || "";
+    const errorType = error?.constructor?.name || "";
+    const errorMessageLower = errorMessage.toLowerCase();
     
-    // Check if it's a FLOOD_WAIT error
+    // Check if it's a FLOOD_WAIT error (rate limited)
     const floodMatch = errorMessage.match(/wait of (\d+) seconds/i);
     const retryAfterSeconds = floodMatch ? parseInt(floodMatch[1]) : undefined;
     
+    if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420) {
+      return {
+        id: target,
+        type: "channel",
+        isBanned: false,
+        status: "unknown",
+        error: `Rate limited: ${errorMessage}`,
+        errorCode: errorCode || "FLOOD_WAIT",
+        retryAfterSeconds,
+      };
+    }
+    
+    // Check for banned/unavailable errors (same logic as inner catch)
+    const isBannedError = 
+      errorMessage.includes("USERNAME_NOT_OCCUPIED") ||
+      errorMessage.includes("USERNAME_INVALID") ||
+      errorMessage.includes("CHANNEL_INVALID") ||
+      errorMessage.includes("PEER_ID_INVALID") ||
+      errorMessage.includes("INPUT_USER_DEACTIVATED") ||
+      errorMessage.includes("USER_DELETED") ||
+      errorMessage.includes("USER_BANNED_IN_CHANNEL") ||
+      errorMessage.includes("CHANNEL_PUBLIC_GROUP_NA") ||
+      errorMessageLower.includes("not found") ||
+      errorMessageLower.includes("cannot find any entity") ||
+      errorMessageLower.includes("no user has") ||
+      errorMessageLower.includes("no channel has") ||
+      errorMessageLower.includes("entity corresponding to") ||
+      errorMessageLower.includes("does not exist") ||
+      errorMessageLower.includes("doesn't exist") ||
+      errorCode === 400 ||
+      errorCode === 404 ||
+      errorType === "UsernameNotOccupiedError" ||
+      errorType === "ChannelInvalidError" ||
+      errorType === "UserDeactivatedError" ||
+      errorType === "PeerIdInvalidError" ||
+      (errorMessageLower.includes("username") && errorMessageLower.includes("invalid")) ||
+      (errorMessageLower.includes("channel") && errorMessageLower.includes("invalid"));
+    
+    if (isBannedError) {
+      return {
+        id: target,
+        type: "channel",
+        isBanned: true,
+        status: "banned",
+        error: `Entity not found or unavailable: ${errorMessage}`,
+        errorCode: errorCode || "NOT_FOUND",
+      };
+    }
+    
+    // Default to unknown for other errors
     return {
       id: target,
       type: "channel",
       isBanned: false,
-      status: errorMessage.includes("FLOOD_WAIT") ? "unknown" : "unknown",
+      status: "unknown",
       error: errorMessage || "Failed to get chat details via MTProto",
       retryAfterSeconds,
     };
