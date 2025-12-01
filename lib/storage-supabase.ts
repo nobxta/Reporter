@@ -101,7 +101,7 @@ export async function getReportsToCheck(): Promise<AppReport[]> {
   
   // Get check interval from settings
   const settings = await getSettings();
-  const checkIntervalMinutes = Math.max(1, Math.min(5, settings.check_interval_minutes || 2));
+  const checkIntervalMinutes = Math.max(1, Math.min(120, settings.check_interval_minutes || 2));
   const checkIntervalMs = checkIntervalMinutes * 60 * 1000;
   const intervalAgo = new Date(Date.now() - checkIntervalMs).toISOString();
 
@@ -177,7 +177,7 @@ export async function getSettings(): Promise<Settings> {
       return {
         id: "default",
         support_emails: process.env.TELEGRAM_SUPPORT_EMAIL ? [process.env.TELEGRAM_SUPPORT_EMAIL] : ["abuse@telegram.org"],
-        check_interval_minutes: Math.max(1, Math.min(5, parseInt(process.env.CHECK_INTERVAL_MINUTES || "2"))),
+        check_interval_minutes: Math.max(1, Math.min(120, parseInt(process.env.CHECK_INTERVAL_MINUTES || "2"))),
         telegram_chat_id: process.env.TELEGRAM_CHAT_ID || null,
         notify_on_no_ban: false,
         checker_bot_tokens: [],
@@ -198,7 +198,7 @@ export async function updateSettings(updates: Partial<Settings>): Promise<Settin
 
   // Validate check_interval_minutes
   if (updates.check_interval_minutes !== undefined) {
-    updates.check_interval_minutes = Math.max(1, Math.min(5, updates.check_interval_minutes));
+    updates.check_interval_minutes = Math.max(1, Math.min(120, updates.check_interval_minutes));
   }
 
   const { data, error } = await supabase

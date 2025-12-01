@@ -263,16 +263,16 @@ export default function SettingsPage() {
                       Check Interval (minutes)
                     </Label>
                     <p className="text-xs text-gray-500 mb-2">
-                      How often to check if reported targets are banned (1-5 minutes)
+                      How often to check if reported targets are banned (1-120 minutes)
                     </p>
                     <Input
                       type="number"
                       min="1"
-                      max="5"
+                      max="120"
                       value={settings.check_interval_minutes}
                       onChange={(e) => {
                         const value = parseInt(e.target.value);
-                        if (!isNaN(value) && value >= 1 && value <= 5) {
+                        if (!isNaN(value) && value >= 1 && value <= 120) {
                           setSettings({
                             ...settings,
                             check_interval_minutes: value,

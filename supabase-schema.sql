@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_last_checked ON reports(last_checked);
 CREATE TABLE IF NOT EXISTS settings (
   id TEXT PRIMARY KEY DEFAULT 'default',
   support_emails TEXT[] NOT NULL DEFAULT ARRAY['abuse@telegram.org'],
-  check_interval_minutes INTEGER NOT NULL DEFAULT 2 CHECK (check_interval_minutes >= 1 AND check_interval_minutes <= 5),
+  check_interval_minutes INTEGER NOT NULL DEFAULT 2 CHECK (check_interval_minutes >= 1 AND check_interval_minutes <= 120),
   telegram_chat_id TEXT,
   notify_on_no_ban BOOLEAN NOT NULL DEFAULT false,
   checker_bot_tokens TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],

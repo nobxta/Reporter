@@ -67,9 +67,9 @@ export async function PUT(request: NextRequest) {
     // Validate check_interval_minutes
     if (check_interval_minutes !== undefined) {
       const interval = parseInt(check_interval_minutes);
-      if (isNaN(interval) || interval < 1 || interval > 5) {
+      if (isNaN(interval) || interval < 1 || interval > 120) {
         return NextResponse.json(
-          { error: "check_interval_minutes must be between 1 and 5" },
+          { error: "check_interval_minutes must be between 1 and 120" },
           { status: 400 }
         );
       }
