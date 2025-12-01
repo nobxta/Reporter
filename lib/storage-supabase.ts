@@ -105,12 +105,12 @@ export async function getReportsToCheck(): Promise<AppReport[]> {
   const checkIntervalMs = checkIntervalMinutes * 60 * 1000;
   const intervalAgo = new Date(Date.now() - checkIntervalMs).toISOString();
 
+  // First, get all sent reports that haven't been banned
   const { data, error } = await supabase
     .from("reports")
     .select("*")
     .eq("status", "sent")
     .is("banned_at", null)
-    .or(`last_checked.is.null,last_checked.lt.${intervalAgo}`)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -118,7 +118,25 @@ export async function getReportsToCheck(): Promise<AppReport[]> {
     return [];
   }
 
-  return (data || []).map(dbReportToApp);
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  // Filter in JavaScript to ensure we check reports that need checking
+  const now = Date.now();
+  const reportsToCheck = data
+    .filter((report) => {
+      // If never checked, include it
+      if (!report.last_checked) {
+        return true;
+      }
+      // If checked more than interval ago, include it
+      const lastChecked = new Date(report.last_checked).getTime();
+      return (now - lastChecked) >= checkIntervalMs;
+    })
+    .map(dbReportToApp);
+
+  return reportsToCheck;
 }
 
 export async function updateReportCheckTime(id: string): Promise<void> {
@@ -197,5 +215,20 @@ export async function updateSettings(updates: Partial<Settings>): Promise<Settin
   }
 
   return data;
+}
+
+/**
+ * Update last check run time in settings
+ */
+export async function updateLastCheckTime(): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  await supabase
+    .from("settings")
+    .upsert({
+      id: "default",
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: "id",
+    });
 }
 

@@ -54,7 +54,10 @@ export async function GET(request: NextRequest) {
     const reportsToCheck = await getReportsToCheck();
     const checkIntervalMinutes = settings.check_interval_minutes || 2;
 
+    console.log(`[Check Reports] Found ${reportsToCheck.length} reports to check (interval: ${checkIntervalMinutes} minutes)`);
+
     if (reportsToCheck.length === 0) {
+      console.log(`[Check Reports] No reports to check at this time`);
       return NextResponse.json({
         success: true,
         message: `No reports to check (interval: ${checkIntervalMinutes} minutes)`,
@@ -75,21 +78,69 @@ export async function GET(request: NextRequest) {
     // Check each report
     for (const report of reportsToCheck) {
       try {
+        console.log(`[Check Reports] Checking report ${report.id}: ${report.target}`);
+        
         // Update last checked time
         await updateReportCheckTime(report.id);
 
-        // Check if username is banned
-        const checkResult = await checkUsernameStatus(botToken, report.target);
+        // Parse targets (can be multiple separated by newlines or commas)
+        const targets = report.target
+          .split(/[\n,]/)
+          .map(t => t.trim())
+          .filter(t => t.length > 0);
 
-        if (checkResult.isBanned) {
-          // Mark as banned
+        let allBanned = true;
+        let anyBanned = false;
+        const targetResults: Array<{ target: string; isBanned: boolean }> = [];
+
+        // Check each target in the report
+        for (const target of targets) {
+          try {
+            console.log(`[Check Reports] Checking target: ${target}`);
+            const checkResult = await checkUsernameStatus(botToken, target);
+            
+            targetResults.push({
+              target,
+              isBanned: checkResult.isBanned,
+            });
+
+            if (checkResult.isBanned) {
+              anyBanned = true;
+              console.log(`[Check Reports] ✅ Target banned: ${target}`);
+            } else {
+              allBanned = false;
+              console.log(`[Check Reports] 🟢 Target active: ${target}`, {
+                error: checkResult.error,
+                type: checkResult.details?.type,
+              });
+            }
+
+            // Small delay between targets to avoid rate limiting
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          } catch (targetError: any) {
+            console.error(`[Check Reports] Error checking target ${target}:`, targetError);
+            allBanned = false;
+            targetResults.push({
+              target,
+              isBanned: false,
+            });
+          }
+        }
+
+        // If any target is banned, mark the report as banned
+        if (anyBanned) {
           await updateReportStatus(report.id, "banned");
 
           // Send notification with details
+          const bannedTargets = targetResults
+            .filter(tr => tr.isBanned)
+            .map(tr => tr.target)
+            .join(", ");
+          
           const notification = formatAutoBanNotification(
-            report.target,
+            bannedTargets || report.target,
             report.id,
-            checkResult.details
+            undefined
           );
           await sendTelegramNotification(botToken, chatId, notification);
 
@@ -100,21 +151,22 @@ export async function GET(request: NextRequest) {
             status: "banned",
           });
 
-          console.log(`✅ Target banned: ${report.target} (Report ID: ${report.id})`);
+          console.log(`[Check Reports] ✅ Report marked as banned: ${report.id}`);
         } else {
           results.push({
             reportId: report.id,
             target: report.target,
             status: "active",
           });
+          console.log(`[Check Reports] 🟢 Report still active: ${report.id}`);
         }
 
         checkedCount++;
 
-        // Small delay to avoid rate limiting
+        // Small delay between reports to avoid rate limiting
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error: any) {
-        console.error(`Error checking report ${report.id}:`, error);
+        console.error(`[Check Reports] Error checking report ${report.id}:`, error);
         results.push({
           reportId: report.id,
           target: report.target,
@@ -122,6 +174,8 @@ export async function GET(request: NextRequest) {
         });
       }
     }
+
+    console.log(`[Check Reports] Completed: ${checkedCount} checked, ${bannedCount} banned`);
 
     return NextResponse.json({
       success: true,

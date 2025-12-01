@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { addReport } from "@/lib/storage-supabase";
+import { addReport, getSettings } from "@/lib/storage-supabase";
+import { sendTelegramNotification, formatNewReportNotification } from "@/lib/telegram-bot";
 
 /**
  * This endpoint saves the report to database
@@ -41,6 +42,26 @@ export async function POST(request: NextRequest) {
     });
 
     console.log("Report saved to database:", newReport);
+
+    // Send Telegram notification for new report
+    try {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      const settings = await getSettings();
+      const chatId = settings.telegram_chat_id || process.env.TELEGRAM_CHAT_ID;
+
+      if (botToken && chatId) {
+        const notification = formatNewReportNotification(
+          newReport.target,
+          newReport.id,
+          newReport.violationType
+        );
+        await sendTelegramNotification(botToken, chatId, notification);
+        console.log(`Notification sent for new report: ${newReport.id}`);
+      }
+    } catch (notificationError: any) {
+      // Don't fail the request if notification fails
+      console.error("Error sending new report notification:", notificationError);
+    }
 
     return NextResponse.json({
       success: true,

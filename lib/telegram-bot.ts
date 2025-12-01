@@ -69,6 +69,29 @@ export function formatAutoBanNotification(
   return message;
 }
 
+export function formatNewReportNotification(
+  target: string,
+  reportId: string,
+  violationType: string
+): string {
+  // Extract username from target (handle @username or https://t.me/username)
+  let username = target.trim();
+  if (username.startsWith("https://t.me/")) {
+    username = username.replace("https://t.me/", "").split("/")[0];
+    if (!username.startsWith("@")) {
+      username = "@" + username;
+    }
+  } else if (!username.startsWith("@")) {
+    username = "@" + username;
+  }
+
+  return `📝 <b>New Report Submitted</b>\n\n` +
+    `Target: <code>${username}</code>\n` +
+    `Violation: ${violationType}\n` +
+    `Report ID: <code>${reportId}</code>\n` +
+    `Time: ${new Date().toLocaleString()}`;
+}
+
 // Re-export MTProto types for backward compatibility
 export type ChatDetails = MTProtoChatDetails;
 
