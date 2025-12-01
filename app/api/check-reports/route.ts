@@ -14,25 +14,74 @@ import {
 
 /**
  * This endpoint can be called:
- * 1. Manually by admin (requires auth)
- * 2. By a cron job (can use a secret header for security)
+ * 1. Manually by admin (requires auth cookie)
+ * 2. By a cron job (requires CRON_SECRET via query param ?key=<secret> or Authorization header)
  * 3. By Vercel Cron (if deployed on Vercel)
+ * 
+ * Authorization methods:
+ * - Query param: ?key=<CRON_SECRET>
+ * - Header: Authorization: Bearer <CRON_SECRET>
+ * - Header: Authorization: <CRON_SECRET> (without Bearer prefix)
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check if this is a cron job call (with secret header) or manual admin call
-    const authHeader = request.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
-    const isCronCall = cronSecret && authHeader === `Bearer ${cronSecret}`;
+    const hasEnv = !!cronSecret;
+
+    // Try to get secret from query parameter
+    const { searchParams } = new URL(request.url);
+    const queryKey = searchParams.get("key");
+
+    // Try to get secret from Authorization header
+    const authHeader = request.headers.get("authorization");
+    let headerKey: string | null = null;
+    
+    if (authHeader) {
+      // Support both "Bearer <secret>" and just "<secret>"
+      if (authHeader.startsWith("Bearer ")) {
+        headerKey = authHeader.substring(7).trim();
+      } else {
+        headerKey = authHeader.trim();
+      }
+    }
+
+    // Get the received key (prefer query param, fallback to header)
+    const receivedKey = queryKey || headerKey;
+
+    // Check if the received key matches the environment variable
+    const matches = hasEnv && receivedKey === cronSecret;
+    const isCronCall = matches;
 
     // If not a cron call, require admin authentication
     if (!isCronCall) {
-      const cookieStore = await cookies();
-      const auth = cookieStore.get("auth");
+      // Return debug info when unauthorized (temporary for troubleshooting)
+      const debug = {
+        receivedKey: receivedKey || null,
+        hasEnv,
+        matches,
+      };
 
-      if (!auth || auth.value !== "1") {
+      // Try cookie-based auth for manual admin access
+      try {
+        const cookieStore = await cookies();
+        const auth = cookieStore.get("auth");
+
+        if (!auth || auth.value !== "1") {
+          return NextResponse.json(
+            { 
+              error: "Unauthorized",
+              debug, // TODO: Remove debug info in production after verification
+            },
+            { status: 401 }
+          );
+        }
+      } catch (cookieError) {
+        // If cookies() fails (e.g., in edge runtime), return unauthorized with debug
         return NextResponse.json(
-          { error: "Unauthorized" },
+          { 
+            error: "Unauthorized",
+            debug, // TODO: Remove debug info in production after verification
+          },
           { status: 401 }
         );
       }
@@ -58,6 +107,7 @@ export async function GET(request: NextRequest) {
 
     if (reportsToCheck.length === 0) {
       console.log(`[Check Reports] No reports to check at this time`);
+      // Don't send notification when there are no reports to check
       return NextResponse.json({
         success: true,
         message: `No reports to check (interval: ${checkIntervalMinutes} minutes)`,
@@ -176,6 +226,28 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`[Check Reports] Completed: ${checkedCount} checked, ${bannedCount} banned`);
+
+    // Send summary notification after checking is complete
+    // Only send if checking was successful (checkedCount > 0)
+    if (checkedCount > 0) {
+      if (bannedCount > 0) {
+        // Already sent individual ban notifications, no need for summary
+        console.log(`[Check Reports] Ban notifications already sent for ${bannedCount} targets`);
+      } else {
+        // No bans found - send notification only if enabled in settings
+        if (settings.notify_on_no_ban) {
+          const summaryMessage = `📊 <b>Check Complete</b>\n\n` +
+            `Checked: ${checkedCount} reports\n` +
+            `Status: No one banned yet\n` +
+            `Time: ${new Date().toLocaleString()}`;
+          
+          await sendTelegramNotification(botToken, chatId, summaryMessage);
+          console.log(`[Check Reports] Sent "No one banned yet" notification`);
+        } else {
+          console.log(`[Check Reports] "No one banned yet" notification disabled in settings`);
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

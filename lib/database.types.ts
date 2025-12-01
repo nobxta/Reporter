@@ -23,6 +23,7 @@ export interface Settings {
   support_emails: string[]; // Array of email addresses
   check_interval_minutes: number; // 1-5
   telegram_chat_id: string | null;
+  notify_on_no_ban: boolean; // Whether to notify when no bans found
   updated_at: string;
 }
 

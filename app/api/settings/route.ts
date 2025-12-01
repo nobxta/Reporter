@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { support_emails, check_interval_minutes, telegram_chat_id } = body;
+    const { support_emails, check_interval_minutes, telegram_chat_id, notify_on_no_ban } = body;
 
     // Validate support_emails
     if (support_emails !== undefined) {
@@ -85,10 +85,21 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Validate notify_on_no_ban
+    if (notify_on_no_ban !== undefined) {
+      if (typeof notify_on_no_ban !== "boolean") {
+        return NextResponse.json(
+          { error: "notify_on_no_ban must be a boolean" },
+          { status: 400 }
+        );
+      }
+    }
+
     const updates: any = {};
     if (support_emails !== undefined) updates.support_emails = support_emails;
     if (check_interval_minutes !== undefined) updates.check_interval_minutes = check_interval_minutes;
     if (telegram_chat_id !== undefined) updates.telegram_chat_id = telegram_chat_id || null;
+    if (notify_on_no_ban !== undefined) updates.notify_on_no_ban = notify_on_no_ban;
 
     const settings = await updateSettings(updates);
 

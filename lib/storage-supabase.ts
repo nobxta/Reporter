@@ -174,13 +174,14 @@ export async function getSettings(): Promise<Settings> {
     // Return defaults if no settings exist (fallback to env vars)
     // NOTE: These env vars are only used as fallbacks. Once Settings page is configured,
     // these values are stored in Supabase and env vars are ignored.
-    return {
-      id: "default",
-      support_emails: process.env.TELEGRAM_SUPPORT_EMAIL ? [process.env.TELEGRAM_SUPPORT_EMAIL] : ["abuse@telegram.org"],
-      check_interval_minutes: Math.max(1, Math.min(5, parseInt(process.env.CHECK_INTERVAL_MINUTES || "2"))),
-      telegram_chat_id: process.env.TELEGRAM_CHAT_ID || null,
-      updated_at: new Date().toISOString(),
-    };
+      return {
+        id: "default",
+        support_emails: process.env.TELEGRAM_SUPPORT_EMAIL ? [process.env.TELEGRAM_SUPPORT_EMAIL] : ["abuse@telegram.org"],
+        check_interval_minutes: Math.max(1, Math.min(5, parseInt(process.env.CHECK_INTERVAL_MINUTES || "2"))),
+        telegram_chat_id: process.env.TELEGRAM_CHAT_ID || null,
+        notify_on_no_ban: false,
+        updated_at: new Date().toISOString(),
+      };
   }
 
   return data;

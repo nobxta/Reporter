@@ -17,6 +17,7 @@ interface Settings {
   support_emails: string[];
   check_interval_minutes: number;
   telegram_chat_id: string | null;
+  notify_on_no_ban: boolean;
 }
 
 export default function SettingsPage() {
@@ -30,6 +31,7 @@ export default function SettingsPage() {
     support_emails: ["abuse@telegram.org"],
     check_interval_minutes: 2,
     telegram_chat_id: null,
+    notify_on_no_ban: false,
   });
 
   const [newEmail, setNewEmail] = useState("");
@@ -110,6 +112,7 @@ export default function SettingsPage() {
           support_emails: settings.support_emails,
           check_interval_minutes: settings.check_interval_minutes,
           telegram_chat_id: settings.telegram_chat_id || null,
+          notify_on_no_ban: settings.notify_on_no_ban,
         }),
       });
 
@@ -270,6 +273,45 @@ export default function SettingsPage() {
                       }}
                       className="bg-[#0a0a0a] border-gray-800 text-white"
                     />
+                  </div>
+
+                  {/* Notify on No Ban Toggle */}
+                  <div>
+                    <Label className="text-white flex items-center gap-2 mb-2">
+                      <MessageSquare className="w-4 h-4" />
+                      Notify When No Bans Found
+                    </Label>
+                    <p className="text-xs text-gray-500 mb-4">
+                      When enabled, you'll receive a "No one banned yet" message every 2 minutes after checking completes. 
+                      Ban notifications are always sent regardless of this setting.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings({
+                            ...settings,
+                            notify_on_no_ban: !settings.notify_on_no_ban,
+                          });
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.notify_on_no_ban
+                            ? "bg-red-600"
+                            : "bg-gray-700"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            settings.notify_on_no_ban
+                              ? "translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm text-white">
+                        {settings.notify_on_no_ban ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
                   </div>
 
                   {error && (
