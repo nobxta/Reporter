@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { support_emails, check_interval_minutes, telegram_chat_id, notify_on_no_ban } = body;
+    const { support_emails, check_interval_minutes, telegram_chat_id, notify_on_no_ban, checker_bot_tokens } = body;
 
     // Validate support_emails
     if (support_emails !== undefined) {
@@ -95,11 +95,32 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Validate checker_bot_tokens
+    if (checker_bot_tokens !== undefined) {
+      if (!Array.isArray(checker_bot_tokens)) {
+        return NextResponse.json(
+          { error: "checker_bot_tokens must be an array" },
+          { status: 400 }
+        );
+      }
+      
+      // Validate each token is a non-empty string
+      for (const token of checker_bot_tokens) {
+        if (typeof token !== "string" || token.trim() === "") {
+          return NextResponse.json(
+            { error: "Each checker_bot_token must be a non-empty string" },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     const updates: any = {};
     if (support_emails !== undefined) updates.support_emails = support_emails;
     if (check_interval_minutes !== undefined) updates.check_interval_minutes = check_interval_minutes;
     if (telegram_chat_id !== undefined) updates.telegram_chat_id = telegram_chat_id || null;
     if (notify_on_no_ban !== undefined) updates.notify_on_no_ban = notify_on_no_ban;
+    if (checker_bot_tokens !== undefined) updates.checker_bot_tokens = checker_bot_tokens;
 
     const settings = await updateSettings(updates);
 

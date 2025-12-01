@@ -141,12 +141,13 @@ export async function GET(request: NextRequest) {
           .map(t => t.trim())
           .filter(t => t.length > 0);
 
-        let reportStatus: "active" | "banned" | "unknown" = "active";
+        let reportStatus: "active" | "banned" | "unknown" | "rate_limited" = "active";
         let anyBanned = false;
         let anyUnknown = false;
+        let anyRateLimited = false;
         const targetResults: Array<{ 
           target: string; 
-          status: "active" | "banned" | "unknown";
+          status: "active" | "banned" | "unknown" | "rate_limited";
           reason?: string;
           errorCode?: string;
         }> = [];
@@ -170,12 +171,15 @@ export async function GET(request: NextRequest) {
             if (targetStatus === "banned") {
               anyBanned = true;
               console.log(`[Check Reports] 🔴 Target unavailable: ${target} (banned, ${checkResult.errorCode || checkResult.error || "not found"})`);
-            } else if (targetStatus === "unknown") {
-              anyUnknown = true;
+            } else if (targetStatus === "rate_limited") {
+              anyRateLimited = true;
               const retryInfo = checkResult.retryAfterSeconds 
                 ? `, retry after ${checkResult.retryAfterSeconds}s`
                 : "";
-              console.log(`[Check Reports] 🟡 Target unknown (rate limited): ${target} (${checkResult.error || checkResult.errorCode || "unknown"}${retryInfo})`);
+              console.log(`[Check Reports] 🟡 Target rate-limited: ${target} (FLOOD_WAIT${retryInfo})`);
+            } else if (targetStatus === "unknown") {
+              anyUnknown = true;
+              console.log(`[Check Reports] 🟡 Target unknown: ${target} (${checkResult.error || checkResult.errorCode || "unknown"})`);
             } else {
               // targetStatus === "active"
               console.log(`[Check Reports] 🟢 Target active: ${target} (${checkResult.details?.type || "resolved"})`);
@@ -234,6 +238,8 @@ export async function GET(request: NextRequest) {
         // Determine overall report status
         if (anyBanned) {
           reportStatus = "banned";
+        } else if (anyRateLimited) {
+          reportStatus = "rate_limited";
         } else if (anyUnknown) {
           reportStatus = "unknown";
         } else {

@@ -1,19 +1,17 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram/tl";
-
-// Reusable client instance (for serverless, we'll create new instances per request)
-let clientInstance: TelegramClient | null = null;
-let isConnecting = false;
-let connectionPromise: Promise<TelegramClient> | null = null;
+import { getSessionPool } from "./telegram-session-pool";
+import { getSettings } from "./storage-supabase";
 
 /**
  * Status classification for target availability:
  * - "active": Target is resolvable and accessible
  * - "banned": Target is banned, deleted, or permanently unavailable
- * - "unknown": Temporary issue (rate limit, network error) - cannot determine status
+ * - "unknown": Temporary issue (network error) - cannot determine status
+ * - "rate_limited": FLOOD_WAIT error - rate limited, need to retry later
  */
-export type TargetStatus = "active" | "banned" | "unknown";
+export type TargetStatus = "active" | "banned" | "unknown" | "rate_limited";
 
 export interface MTProtoChatDetails {
   id: string | number;
@@ -41,64 +39,47 @@ export interface MTProtoChatDetails {
 }
 
 /**
- * Get or create a GramJS client instance
- * For serverless environments, we create a new client per request
- * For long-running processes, we reuse the same client
+ * Get an available client from the session pool
+ * Returns null if all sessions are rate-limited
  */
-async function getMTProtoClient(): Promise<TelegramClient> {
-  const API_ID = parseInt(process.env.TELEGRAM_API_ID || "");
-  const API_HASH = process.env.TELEGRAM_API_HASH || "";
-  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-
-  if (!API_ID || !API_HASH || !BOT_TOKEN) {
-    throw new Error(
-      "TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_BOT_TOKEN must be set in environment variables"
-    );
+async function getMTProtoClientFromPool(): Promise<{ client: TelegramClient; sessionInfo: any } | null> {
+  const sessionPool = getSessionPool();
+  
+  // Get settings to initialize sessions
+  const settings = await getSettings();
+  const checkerTokens = settings.checker_bot_tokens || [];
+  
+  // Fallback to main bot token if no checker tokens configured
+  const tokens = checkerTokens.length > 0 
+    ? checkerTokens 
+    : (process.env.TELEGRAM_BOT_TOKEN ? [process.env.TELEGRAM_BOT_TOKEN] : []);
+  
+  if (tokens.length === 0) {
+    throw new Error("No checker bot tokens configured. Please add tokens in Settings.");
   }
-
-  // For serverless (Vercel), always create a new client
-  // For long-running processes, reuse the client
-  const isServerless = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
-
-  if (!isServerless && clientInstance && clientInstance.connected) {
-    return clientInstance;
-  }
-
-  // If already connecting, wait for that promise
-  if (isConnecting && connectionPromise) {
-    return connectionPromise;
-  }
-
-  // Create new client
-  const session = new StringSession("");
-  const client = new TelegramClient(session, API_ID, API_HASH, {
-    connectionRetries: 3,
-    retryDelay: 1000,
-    timeout: 10000,
-  });
-
-  isConnecting = true;
-  connectionPromise = (async () => {
-    try {
-      await client.start({
-        botAuthToken: BOT_TOKEN,
-      });
-
-      if (!isServerless) {
-        clientInstance = client;
-      }
-
-      isConnecting = false;
-      connectionPromise = null;
-      return client;
-    } catch (error) {
-      isConnecting = false;
-      connectionPromise = null;
-      throw error;
+  
+  // Initialize sessions for all tokens
+  await sessionPool.initializeSessions(tokens);
+  
+  // Get an available session
+  const sessionInfo = sessionPool.getAvailableSession();
+  
+  if (!sessionInfo) {
+    // All sessions are rate-limited
+    const shortestCooldown = sessionPool.getSessionWithShortestCooldown();
+    if (shortestCooldown && shortestCooldown.floodCooldownUntil) {
+      const remainingSeconds = Math.ceil((shortestCooldown.floodCooldownUntil - Date.now()) / 1000);
+      console.warn(`[MTProto] All sessions rate-limited. Shortest cooldown: ${remainingSeconds}s`);
+      return null;
     }
-  })();
-
-  return connectionPromise;
+    // No sessions available at all
+    return null;
+  }
+  
+  // Get or create client for this session
+  const client = await sessionPool.getClient(sessionInfo);
+  
+  return { client, sessionInfo };
 }
 
 /**
@@ -109,9 +90,28 @@ export async function getMTProtoChatDetails(
   target: string
 ): Promise<MTProtoChatDetails> {
   let client: TelegramClient | null = null;
+  let sessionInfo: any = null;
+  const sessionPool = getSessionPool();
 
   try {
-    client = await getMTProtoClient();
+    // Get client from session pool
+    const poolResult = await getMTProtoClientFromPool();
+    
+    if (!poolResult) {
+      // All sessions are rate-limited
+      return {
+        id: target,
+        type: "channel",
+        isBanned: false,
+        status: "rate_limited",
+        error: "All checker sessions are rate-limited. Please try again later.",
+        errorCode: "FLOOD_WAIT",
+        retryAfterSeconds: undefined, // Could calculate from shortest cooldown if needed
+      };
+    }
+    
+    client = poolResult.client;
+    sessionInfo = poolResult.sessionInfo;
 
     // Extract username from target (handle @username or https://t.me/username)
     let username = target.trim();
@@ -281,17 +281,25 @@ export async function getMTProtoChatDetails(
        * - Entity is successfully resolved and accessible
        */
 
-      // Check for FLOOD_WAIT / rate limiting (temporary - should be "unknown")
-      if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420) {
+      // Check for FLOOD_WAIT / rate limiting (temporary - should be "rate_limited")
+      if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420 || error?.errorMessage === "FLOOD") {
+        // Extract seconds from error object or message
+        const seconds = error?.seconds || retryAfterSeconds || 0;
+        
+        // Mark the session as rate-limited
+        if (sessionInfo && seconds > 0) {
+          sessionPool.markSessionAsRateLimited(sessionInfo.botToken, seconds);
+        }
+        
         return {
           id: entityId,
           type: "channel",
           username: entityId,
           isBanned: false,
-          status: "unknown",
+          status: "rate_limited",
           error: `Rate limited: ${errorMessage}`,
           errorCode: errorCode || "FLOOD_WAIT",
-          retryAfterSeconds,
+          retryAfterSeconds: seconds,
         };
       }
 
@@ -399,17 +407,23 @@ export async function getMTProtoChatDetails(
     
     // Check if it's a FLOOD_WAIT error (rate limited)
     const floodMatch = errorMessage.match(/wait of (\d+) seconds/i);
-    const retryAfterSeconds = floodMatch ? parseInt(floodMatch[1]) : undefined;
+    const seconds = error?.seconds || (floodMatch ? parseInt(floodMatch[1]) : undefined);
     
-    if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420) {
+    // Handle FLOOD errors at the outer catch level
+    if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420 || error?.errorMessage === "FLOOD") {
+      // Mark the session as rate-limited if we have session info
+      if (sessionInfo && seconds && seconds > 0) {
+        sessionPool.markSessionAsRateLimited(sessionInfo.botToken, seconds);
+      }
+      
       return {
         id: target,
         type: "channel",
         isBanned: false,
-        status: "unknown",
+        status: "rate_limited",
         error: `Rate limited: ${errorMessage}`,
         errorCode: errorCode || "FLOOD_WAIT",
-        retryAfterSeconds,
+        retryAfterSeconds: seconds,
       };
     }
     
@@ -469,6 +483,11 @@ export async function getMTProtoChatDetails(
       } catch (e) {
         // Ignore disconnect errors
       }
+    }
+    
+    // Cleanup session pool for serverless
+    if (isServerless) {
+      await sessionPool.cleanup();
     }
   }
 }

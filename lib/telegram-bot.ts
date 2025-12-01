@@ -137,7 +137,7 @@ export async function checkUsernameStatus(
   target: string
 ): Promise<{ 
   isBanned: boolean; // Deprecated: use status instead
-  status: "active" | "banned" | "unknown";
+  status: "active" | "banned" | "unknown" | "rate_limited";
   error?: string;
   errorCode?: string;
   retryAfterSeconds?: number;
@@ -149,19 +149,24 @@ export async function checkUsernameStatus(
   } catch (error: any) {
     console.error("Error in checkUsernameStatus (MTProto):", error);
     const errorMessage = error?.message || "Failed to check username status";
-    const isFloodWait = errorMessage.includes("FLOOD_WAIT");
+    const isFloodWait = errorMessage.includes("FLOOD_WAIT") || error?.errorMessage === "FLOOD" || error?.code === 420;
+    const seconds = error?.seconds;
     
-    // Fallback: return error response with unknown status
+    // Fallback: return error response with appropriate status
     return {
       isBanned: false,
-      status: isFloodWait ? "unknown" : "unknown",
+      status: isFloodWait ? "rate_limited" : "unknown",
       error: errorMessage,
+      errorCode: isFloodWait ? "FLOOD_WAIT" : undefined,
+      retryAfterSeconds: seconds,
       details: {
         id: target,
         type: "channel",
         isBanned: false,
-        status: isFloodWait ? "unknown" : "unknown",
+        status: isFloodWait ? "rate_limited" : "unknown",
         error: errorMessage,
+        errorCode: isFloodWait ? "FLOOD_WAIT" : undefined,
+        retryAfterSeconds: seconds,
       },
     };
   }

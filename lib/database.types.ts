@@ -24,6 +24,7 @@ export interface Settings {
   check_interval_minutes: number; // 1-5
   telegram_chat_id: string | null;
   notify_on_no_ban: boolean; // Whether to notify when no bans found
+  checker_bot_tokens: string[]; // Array of bot tokens for checking status (MTProto)
   updated_at: string;
 }
 

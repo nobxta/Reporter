@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Mail, Clock, MessageSquare, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { Mail, Clock, MessageSquare, X, CheckCircle2, AlertCircle, Bot, Key } from "lucide-react";
 import Navbar from "@/components/navbar";
 import DarkLayout from "@/components/dark-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,6 +18,7 @@ interface Settings {
   check_interval_minutes: number;
   telegram_chat_id: string | null;
   notify_on_no_ban: boolean;
+  checker_bot_tokens: string[];
 }
 
 export default function SettingsPage() {
@@ -32,9 +33,11 @@ export default function SettingsPage() {
     check_interval_minutes: 2,
     telegram_chat_id: null,
     notify_on_no_ban: false,
+    checker_bot_tokens: [],
   });
 
   const [newEmail, setNewEmail] = useState("");
+  const [newCheckerToken, setNewCheckerToken] = useState("");
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -97,6 +100,33 @@ export default function SettingsPage() {
     setError("");
   };
 
+  const handleAddCheckerToken = () => {
+    if (!newCheckerToken.trim()) {
+      setError("Token cannot be empty");
+      return;
+    }
+
+    if (settings.checker_bot_tokens.includes(newCheckerToken.trim())) {
+      setError("Token already exists");
+      return;
+    }
+
+    setSettings({
+      ...settings,
+      checker_bot_tokens: [...settings.checker_bot_tokens, newCheckerToken.trim()],
+    });
+    setNewCheckerToken("");
+    setError("");
+  };
+
+  const handleRemoveCheckerToken = (token: string) => {
+    setSettings({
+      ...settings,
+      checker_bot_tokens: settings.checker_bot_tokens.filter((t) => t !== token),
+    });
+    setError("");
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError("");
@@ -113,6 +143,7 @@ export default function SettingsPage() {
           check_interval_minutes: settings.check_interval_minutes,
           telegram_chat_id: settings.telegram_chat_id || null,
           notify_on_no_ban: settings.notify_on_no_ban,
+          checker_bot_tokens: settings.checker_bot_tokens,
         }),
       });
 
@@ -311,6 +342,67 @@ export default function SettingsPage() {
                       <span className="text-sm text-white">
                         {settings.notify_on_no_ban ? "Enabled" : "Disabled"}
                       </span>
+                    </div>
+                  </div>
+
+                  {/* Checker Bot Tokens */}
+                  <div>
+                    <Label className="text-white flex items-center gap-2 mb-2">
+                      <Bot className="w-4 h-4" />
+                      Checker Bot Tokens
+                    </Label>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Add multiple bot tokens to distribute checking load and avoid rate limits. 
+                      These tokens are used exclusively for checking target status (not for sending messages).
+                      If no tokens are configured, the main bot token will be used as fallback.
+                    </p>
+                    
+                    <div className="space-y-2 mb-4">
+                      {settings.checker_bot_tokens.map((token, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-3 bg-[#0a0a0a] border border-gray-800 rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Key className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-white font-mono">
+                              {token.substring(0, 15)}...{token.substring(token.length - 5)}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveCheckerToken(token)}
+                            className="text-red-500 hover:text-red-400 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {settings.checker_bot_tokens.length === 0 && (
+                        <p className="text-xs text-gray-500 italic">No checker tokens configured. Main bot token will be used.</p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Enter bot token (e.g., 123456789:ABCdefGHIjklMNOpqrsTUVwxyz)"
+                        value={newCheckerToken}
+                        onChange={(e) => setNewCheckerToken(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleAddCheckerToken();
+                          }
+                        }}
+                        className="bg-[#0a0a0a] border-gray-800 text-white flex-1"
+                      />
+                      <Button
+                        type="button"
+                        onClick={handleAddCheckerToken}
+                        variant="outline"
+                        className="border-gray-700 text-white hover:bg-gray-800"
+                      >
+                        Add Token
+                      </Button>
                     </div>
                   </div>
 

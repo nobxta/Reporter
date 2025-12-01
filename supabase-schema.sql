@@ -30,16 +30,20 @@ CREATE TABLE IF NOT EXISTS settings (
   check_interval_minutes INTEGER NOT NULL DEFAULT 2 CHECK (check_interval_minutes >= 1 AND check_interval_minutes <= 5),
   telegram_chat_id TEXT,
   notify_on_no_ban BOOLEAN NOT NULL DEFAULT false,
+  checker_bot_tokens TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Insert default settings
-INSERT INTO settings (id, support_emails, check_interval_minutes, telegram_chat_id, notify_on_no_ban)
-VALUES ('default', ARRAY['abuse@telegram.org'], 2, NULL, false)
+INSERT INTO settings (id, support_emails, check_interval_minutes, telegram_chat_id, notify_on_no_ban, checker_bot_tokens)
+VALUES ('default', ARRAY['abuse@telegram.org'], 2, NULL, false, ARRAY[]::TEXT[])
 ON CONFLICT (id) DO NOTHING;
 
 -- Add notify_on_no_ban column if it doesn't exist (for existing databases)
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS notify_on_no_ban BOOLEAN NOT NULL DEFAULT false;
+
+-- Add checker_bot_tokens column if it doesn't exist (for existing databases)
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS checker_bot_tokens TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;

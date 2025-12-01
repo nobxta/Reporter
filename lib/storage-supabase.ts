@@ -180,6 +180,7 @@ export async function getSettings(): Promise<Settings> {
         check_interval_minutes: Math.max(1, Math.min(5, parseInt(process.env.CHECK_INTERVAL_MINUTES || "2"))),
         telegram_chat_id: process.env.TELEGRAM_CHAT_ID || null,
         notify_on_no_ban: false,
+        checker_bot_tokens: [],
         updated_at: new Date().toISOString(),
       };
   }
