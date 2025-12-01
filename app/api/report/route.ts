@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { target, violationType, description, evidence, notes } = await request.json();
+    const { target, targetType, entityType, violationType, description, evidence, notes } = await request.json();
 
     // Validate required fields
     if (!target || !violationType || !description) {
@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
 
     const reportData = {
       target: target.trim(),
+      targetType: targetType || (target.includes("t.me/") || target.startsWith("http") ? "link" : "username"),
+      entityType: entityType || "account",
       violationType,
       description: description.trim(),
       evidence: evidence?.trim() || "",

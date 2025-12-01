@@ -14,6 +14,8 @@ export async function addReport(
   const supabase = getSupabaseAdmin();
   const dbReport = appReportToDb({
     target: report.target,
+    targetType: report.targetType,
+    entityType: report.entityType,
     violationType: report.violationType,
     description: report.description,
     evidence: report.evidence,

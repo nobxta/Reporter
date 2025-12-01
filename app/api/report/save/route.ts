@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { target, violationType, description, evidence, notes, complaintSubject, complaintBody } = await request.json();
+    const { target, targetType, entityType, violationType, description, evidence, notes, complaintSubject, complaintBody } = await request.json();
 
     // Validate required fields
     if (!target || !violationType || !description || !complaintSubject || !complaintBody) {
@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
     // Save report to database
     const newReport = await addReport({
       target: target.trim(),
+      targetType: targetType || (target.includes("t.me/") || target.startsWith("http") ? "link" : "username"),
+      entityType: entityType || "account",
       violationType,
       description: description.trim(),
       evidence: evidence?.trim() || "",
@@ -53,7 +55,9 @@ export async function POST(request: NextRequest) {
         const notification = formatNewReportNotification(
           newReport.target,
           newReport.id,
-          newReport.violationType
+          newReport.violationType,
+          newReport.entityType,
+          newReport.targetType
         );
         await sendTelegramNotification(botToken, chatId, notification);
         console.log(`Notification sent for new report: ${newReport.id}`);

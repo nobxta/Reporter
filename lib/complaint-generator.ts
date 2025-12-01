@@ -1,34 +1,37 @@
 // Input type for complaint generation
 export interface ComplaintInput {
   target: string;
+  targetType?: "link" | "username";
+  entityType?: "channel" | "group" | "account";
   violationType: string;
   description: string;
   evidence?: string | null;
   notes?: string | null;
+  forceSenderName?: string | null;
 }
 
-// Random name list for sign-off
+// Random name list for sign-off - realistic Indian and international names
 const RANDOM_NAMES = [
-  "John Doe",
-  "Neeraj Gupta",
-  "Amit Verma",
-  "Ravi Kumar",
-  "Jennifer Lee",
-  "Sarah Mitchell",
   "Rahul Sharma",
-  "Daniel Reed",
-  "Arjun Mehta",
-  "Simran Kaur",
-  "Michael Carter",
-  "Sofia Williams",
-  "Rohan Singh",
-  "Emily Parker",
-  "Anuj Tiwari",
-  "Olivia Turner",
-  "Jason Patel",
-  "Aditya Raj",
+  "Neha Verma",
+  "Amit Patel",
+  "Aditya Mehra",
+  "Karan Singh",
   "Priya Nair",
-  "Robert Hayes",
+  "Rohan Kumar",
+  "Anjali Desai",
+  "Vikram Reddy",
+  "Sneha Iyer",
+  "Arjun Mehta",
+  "Divya Joshi",
+  "Rajesh Gupta",
+  "Meera Kapoor",
+  "Siddharth Malhotra",
+  "Kavya Menon",
+  "Nikhil Agarwal",
+  "Shreya Rao",
+  "Varun Bhatia",
+  "Isha Choudhury",
 ];
 
 // Get random name
@@ -44,145 +47,33 @@ function parseTargets(target: string): string[] {
     .filter((t) => t.length > 0);
 }
 
-// Extract legal references from text (looks for patterns like "IPC 420", "IT Act 66C", etc.)
-function extractLegalReferences(text: string): string[] {
-  const legalPatterns = [
-    /(?:IPC|Indian Penal Code|Information Technology Act|IT Act|Section)\s+\d+[A-Z]?/gi,
-    /(?:Act|Law|Code|Section)\s+\d+[A-Z]?/gi,
-    /\d+\s+(?:of|under)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/gi,
-  ];
-
-  const references: string[] = [];
-  const found = new Set<string>();
-
-  for (const pattern of legalPatterns) {
-    const matches = text.match(pattern);
-    if (matches) {
-      matches.forEach((match) => {
-        const cleaned = match.trim();
-        if (cleaned && !found.has(cleaned.toLowerCase())) {
-          found.add(cleaned.toLowerCase());
-          references.push(cleaned);
-        }
-      });
-    }
-  }
-
-  return references;
-}
-
-// Extract key harmful activities from report text (3-8 bullet points)
-function extractHarmfulActivities(reportText: string): string[] {
-  // Split by sentences and look for action verbs or key phrases
-  const sentences = reportText
-    .split(/[.!?]\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 10);
-
-  const activities: string[] = [];
-  const activityKeywords = [
-    "selling",
-    "distributing",
-    "providing",
-    "offering",
-    "promoting",
-    "facilitating",
-    "targeting",
-    "scamming",
-    "defrauding",
-    "stealing",
-    "hacking",
-    "phishing",
-    "spoofing",
-    "violating",
-    "threatening",
-    "harassing",
-  ];
-
-  for (const sentence of sentences) {
-    const lowerSentence = sentence.toLowerCase();
-    if (activityKeywords.some((keyword) => lowerSentence.includes(keyword))) {
-      // Clean up the sentence
-      let activity = sentence.trim();
-      // Remove leading capitalization issues
-      if (activity.length > 0) {
-        activity = activity.charAt(0).toUpperCase() + activity.slice(1);
-      }
-      // Ensure it ends properly
-      if (!/[.!?]$/.test(activity)) {
-        activity += ".";
-      }
-      activities.push(activity);
-    }
-  }
-
-  // If we don't have enough, create from key phrases
-  if (activities.length < 3) {
-    const phrases = reportText
-      .split(/[,;]\s+/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 15 && p.length < 200);
-
-    for (const phrase of phrases) {
-      if (activities.length >= 8) break;
-      if (!activities.some((a) => a.toLowerCase().includes(phrase.toLowerCase().substring(0, 20)))) {
-        let activity = phrase.trim();
-        if (activity.length > 0) {
-          activity = activity.charAt(0).toUpperCase() + activity.slice(1);
-        }
-        if (!/[.!?]$/.test(activity)) {
-          activity += ".";
-        }
-        activities.push(activity);
-      }
-    }
-  }
-
-  // Ensure we have at least 3 and at most 8
-  if (activities.length < 3) {
-    // Fallback: split description into meaningful chunks
-    const chunks = reportText.split(/[.!?]\s+/).filter((c) => c.trim().length > 20);
-    activities.push(...chunks.slice(0, Math.min(8 - activities.length, chunks.length)));
-  }
-
-  return activities.slice(0, 8);
-}
-
-// Create summary paragraphs from report text
-function createSummary(reportText: string): string {
-  const sentences = reportText
+// Clean and rewrite user text into proper English while preserving meaning
+function cleanUserText(text: string): string {
+  if (!text || !text.trim()) return "";
+  
+  // Split into sentences
+  const sentences = text
     .split(/[.!?]\s+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-
-  if (sentences.length <= 3) {
-    // Short text - return as is with proper formatting
-    return sentences.join(". ") + (sentences.length > 0 && !sentences[sentences.length - 1].endsWith(".") ? "." : "");
-  }
-
-  // Create 1-3 paragraphs
-  const firstParagraph = sentences.slice(0, Math.ceil(sentences.length / 3)).join(". ");
-  const secondParagraph =
-    sentences.length > 3
-      ? sentences.slice(Math.ceil(sentences.length / 3), Math.ceil((sentences.length * 2) / 3)).join(". ")
-      : "";
-  const thirdParagraph =
-    sentences.length > 6 ? sentences.slice(Math.ceil((sentences.length * 2) / 3)).join(". ") : "";
-
-  let summary = firstParagraph;
-  if (!summary.endsWith(".")) summary += ".";
-
-  if (secondParagraph) {
-    summary += "\n\n" + secondParagraph;
-    if (!secondParagraph.endsWith(".")) summary += ".";
-  }
-
-  if (thirdParagraph) {
-    summary += "\n\n" + thirdParagraph;
-    if (!thirdParagraph.endsWith(".")) summary += ".";
-  }
-
-  return summary;
+  
+  if (sentences.length === 0) return "";
+  
+  // Capitalize first letter of each sentence and ensure proper punctuation
+  const cleaned = sentences
+    .map((s) => {
+      let cleaned = s.trim();
+      if (cleaned.length > 0) {
+        cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+        if (!/[.!?]$/.test(cleaned)) {
+          cleaned += ".";
+        }
+      }
+      return cleaned;
+    })
+    .join(" ");
+  
+  return cleaned;
 }
 
 // Parse evidence - handle newlines, commas, or "none"
@@ -195,6 +86,80 @@ function parseEvidence(evidence: string): string[] {
     .split(/[\n,]/)
     .map((e) => e.trim())
     .filter((e) => e.length > 0 && e.toLowerCase() !== "none");
+}
+
+// Get issue type description for intro paragraph
+function getIssueTypeDescription(issueType: string): string {
+  const descriptions: Record<string, string> = {
+    impersonation: "a case of impersonation",
+    scam: "fraudulent and scam-related activity",
+    fraud: "fraudulent and scam-related activity",
+    spam: "persistent spam activity",
+    harassment: "targeted harassment and harmful content",
+    hate_speech: "targeted harassment and harmful content",
+    sexual_content: "explicit and harmful content",
+    self_harm_promotion: "content that encourages self-harm or dangerous behavior",
+    copyright_violation: "unauthorized use and distribution of protected content",
+    malware: "malicious software distribution and data theft attempts",
+    illegal: "content that violates applicable laws and platform policies",
+    other: "behavior that violates Telegram's Terms of Service",
+  };
+  
+  return descriptions[issueType] || descriptions.other;
+}
+
+// Get detailed issue description based on type and entity type
+function getIssueDetails(issueType: string, detailsText: string, entityType: "channel" | "group" | "account" = "account"): string {
+  const entityWord = entityType === "channel" ? "channel" : entityType === "group" ? "group" : "account";
+  let baseDescription = "";
+  
+  switch (issueType) {
+    case "impersonation":
+      baseDescription = `The ${entityWord} is pretending to be another person, brand, or service. It uses similar names, profile information, or messaging patterns to mislead users into believing it is an official or authorized ${entityWord}.`;
+      break;
+    case "scam":
+    case "fraud":
+      baseDescription = `The ${entityWord} is engaging in fraudulent activities designed to trick users into sending money, cryptocurrency, or sensitive personal information. This includes promoting fake investment schemes, cryptocurrency giveaways, or other deceptive financial scams.`;
+      break;
+    case "spam":
+      if (entityType === "channel" || entityType === "group") {
+        baseDescription = `The ${entityWord} is distributing mass unsolicited content, repeatedly promoting services or products, or sending unwanted messages to users without consent.`;
+      } else {
+        baseDescription = `The ${entityWord} is sending mass unsolicited messages, repeatedly promoting services or products, or sending unwanted invitations across multiple chats and groups without consent.`;
+      }
+      break;
+    case "harassment":
+    case "hate_speech":
+      baseDescription = `The ${entityWord} is ${entityType === "channel" || entityType === "group" ? "publishing" : "sending"} abusive, threatening, or hateful ${entityType === "channel" || entityType === "group" ? "content" : "messages"} targeting specific individuals or groups based on protected characteristics. This behavior creates a hostile environment and violates platform safety guidelines.`;
+      break;
+    case "sexual_content":
+      baseDescription = `The ${entityWord} is sharing explicit sexual content or material that violates Telegram's community guidelines regarding adult content distribution.`;
+      break;
+    case "self_harm_promotion":
+      baseDescription = `The ${entityWord} is promoting or encouraging self-harm, suicide, or other dangerous behaviors that pose serious risks to user safety and mental health.`;
+      break;
+    case "copyright_violation":
+      baseDescription = `The ${entityWord} is distributing copyrighted material without authorization, including movies, music, software, or other protected intellectual property.`;
+      break;
+    case "malware":
+      baseDescription = `The ${entityWord} is sharing links or files that appear to deliver malicious software, steal user credentials, or compromise device security. These activities pose significant risks to user privacy and data safety.`;
+      break;
+    case "illegal":
+      baseDescription = `The ${entityWord} is sharing content or engaging in activities that violate applicable laws and Telegram's Terms of Service, including but not limited to illegal goods, services, or prohibited content.`;
+      break;
+    default:
+      baseDescription = `The ${entityWord} is engaging in behavior that violates Telegram's Terms of Service and community guidelines, creating risks to user safety and platform integrity.`;
+  }
+  
+  // If user provided details, integrate them smoothly
+  if (detailsText && detailsText.trim()) {
+    const cleanedDetails = cleanUserText(detailsText);
+    if (cleanedDetails) {
+      return `${baseDescription} Specifically, ${cleanedDetails.toLowerCase()}`;
+    }
+  }
+  
+  return baseDescription;
 }
 
 // Predefined subjects based on violation type
@@ -235,81 +200,117 @@ function generateSubject(targets: string[], violationType: string): string {
   return `URGENT: ${username} is doing ${violationDesc}`;
 }
 
-export function generateComplaint(report: ComplaintInput) {
-  // Parse inputs first
-  const targets = parseTargets(report.target);
-  const reportText = [report.description, report.notes].filter((t) => t && t.trim()).join(" ").trim();
-  const evidence = parseEvidence(report.evidence || "");
+// Get entity type description for natural language
+function getEntityTypeDescription(entityType: "channel" | "group" | "account" | undefined): string {
+  switch (entityType) {
+    case "channel":
+      return "channel";
+    case "group":
+      return "group";
+    case "account":
+      return "account";
+    default:
+      return "account";
+  }
+}
 
-  // Generate dynamic subject based on violation type
+// Format target based on type
+function formatTargetForEmail(target: string, targetType: "link" | "username" | undefined, entityType: "channel" | "group" | "account" | undefined): string {
+  // If it's a link, use it as-is (or extract username if it's a simple channel link)
+  if (targetType === "link" || target.includes("t.me/") || target.startsWith("http")) {
+    // For channel/group links, try to extract username for cleaner display
+    if (target.includes("t.me/")) {
+      const match = target.match(/t\.me\/([^\/\s]+)/);
+      if (match) {
+        const username = match[1];
+        // If it's a message link, keep the full link
+        if (target.includes(`/${username}/`)) {
+          return target;
+        }
+        // Otherwise, format as @username
+        return `@${username}`;
+      }
+    }
+    return target;
+  }
+  
+  // For username, ensure @ prefix
+  if (!target.startsWith("@")) {
+    return `@${target}`;
+  }
+  return target;
+}
+
+export function generateComplaint(report: ComplaintInput) {
+  // Parse inputs
+  const targets = parseTargets(report.target);
+  const targetUsername = targets[0] || report.target.trim();
+  const issueType = report.violationType;
+  const detailsText = [report.description, report.notes].filter((t) => t && t.trim()).join(" ").trim();
+  const evidenceItems = parseEvidence(report.evidence || "");
+  const forceSenderName = report.forceSenderName?.trim() || null;
+  const targetType = report.targetType || (targetUsername.includes("t.me/") || targetUsername.startsWith("http") ? "link" : "username");
+  const entityType = report.entityType || "account";
+
+  // Generate subject (keep existing logic)
   const subject = generateSubject(targets, report.violationType);
 
-  // Extract components
-  const legalReferences = extractLegalReferences(reportText);
-  const harmfulActivities = extractHarmfulActivities(reportText);
-  const summary = createSummary(reportText);
+  // Determine sender name
+  const senderName = forceSenderName && forceSenderName.length > 0 
+    ? forceSenderName 
+    : getRandomName();
 
-  // Generate email body
+  // Format target for email
+  const formattedTarget = formatTargetForEmail(targetUsername, targetType, entityType);
+  const entityDesc = getEntityTypeDescription(entityType);
+
+  // Get issue type description
+  const issueDesc = getIssueTypeDescription(issueType);
+
+  // Generate email body following strict structure
   let body = "Dear Telegram Support Team,\n\n";
 
-  // Introduction
-  body += "I am writing to report serious illegal and harmful activity occurring on the following Telegram channels, users, or message links:\n\n";
-
-  // List targets
-  targets.forEach((target) => {
-    body += `• ${target}\n`;
-  });
-  body += "\n";
-
-  // Summary of Issue
-  body += "SUMMARY OF ISSUE:\n\n";
-  body += summary + "\n\n";
-
-  // Key Harmful Activities
-  if (harmfulActivities.length > 0) {
-    body += "KEY HARMFUL ACTIVITIES:\n\n";
-    harmfulActivities.forEach((activity) => {
-      body += `• ${activity}\n`;
-    });
-    body += "\n";
+  // Intro paragraph (1-3 sentences) - now uses entity type
+  body += `I am writing to report ${issueDesc} associated with the following ${entityDesc}: ${formattedTarget}. `;
+  body += `This behavior violates Telegram's Terms of Service and may require ${entityDesc} restriction or permanent ban if confirmed.`;
+  if (targets.length > 1) {
+    body += ` Additionally, ${targets.length - 1} other related ${entityDesc}${targets.length > 2 ? 's' : ''} ${targets.length > 2 ? 'are' : 'is'} involved in similar violations.`;
   }
+  body += "\n\n";
 
-  // Legal & Policy References
-  if (legalReferences.length > 0) {
-    body += "LEGAL & POLICY REFERENCES:\n\n";
-    body += "Legal & Policy References (as reported):\n\n";
-    legalReferences.forEach((ref) => {
-      body += `• ${ref}\n`;
+  // Details of the issue section
+  body += "Details of the issue:\n\n";
+  const issueDetails = getIssueDetails(issueType, detailsText, entityType);
+  body += issueDetails;
+  body += "\n\n";
+
+  // Evidence section
+  body += "Evidence:\n\n";
+  if (evidenceItems.length > 0) {
+    body += "Below are specific items that demonstrate the behavior:\n\n";
+    evidenceItems.forEach((item) => {
+      body += `• ${item}\n`;
     });
-    body += "\n";
+  } else {
+    body += "I am prepared to provide screenshots, chat logs, or additional details upon request.";
   }
+  body += "\n\n";
 
-  // Evidence
-  if (evidence.length > 0) {
-    body += "EVIDENCE:\n\n";
-    body += "Evidence for Review:\n\n";
-    evidence.forEach((link) => {
-      body += `• ${link}\n`;
-    });
-    body += "\n";
-  }
+  // Requested actions section
+  body += "Requested actions:\n\n";
+  body += `1. Review the reported ${entityDesc} and its related activity.\n`;
+  body += "2. Verify whether this behavior violates Telegram's Terms of Service and community guidelines.\n";
+  body += `3. Take appropriate enforcement action, including ${entityDesc} restriction or permanent ban, if violations are confirmed.\n`;
+  body += "4. Remove or limit access to harmful, misleading, or abusive content where applicable.\n";
+  body += "5. Preserve relevant data for potential legal or internal review, if needed.\n\n";
 
-  // Requested Actions (always included)
-  body += "REQUESTED ACTIONS:\n\n";
-  body += "Requested Actions:\n\n";
-  body += "1. Investigate the reported channels, users, and content.\n";
-  body += "2. Remove any content violating Telegram Terms or applicable laws.\n";
-  body += "3. Take enforcement action against involved accounts if confirmed.\n";
-  body += "4. Preserve digital evidence for law enforcement authorities.\n\n";
+  // Closing paragraph (1-2 sentences)
+  body += "I am concerned about user safety, trust, and platform integrity. I appreciate your assistance in addressing this matter promptly.\n\n";
 
-  // Closing
-  body += "This situation presents a significant risk to public safety and platform integrity. I request urgent review and action.\n\n";
-  body += "Thank you for your prompt attention.\n\n";
-
-  // Sign-off with random name
-  const randomName = getRandomName();
+  // Sign-off
+  body += "Thank you for your time and assistance.\n\n";
   body += "Best regards,\n";
-  body += randomName;
+  body += senderName;
 
   return { subject, body };
 }

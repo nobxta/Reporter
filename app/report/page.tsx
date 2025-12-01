@@ -20,6 +20,7 @@ type Report = AppReport;
 
 const STEPS = [
   "Target",
+  "Target Details",
   "Violation Type",
   "Description",
   "Evidence",
@@ -46,6 +47,8 @@ export default function ReportPage() {
 
   const [formData, setFormData] = useState({
     target: "",
+    targetType: "username" as "link" | "username",
+    entityType: "account" as "channel" | "group" | "account",
     violationType: "",
     description: "",
     evidence: "",
@@ -60,6 +63,8 @@ export default function ReportPage() {
   const [editableBody, setEditableBody] = useState("");
   const [reportDataForSave, setReportDataForSave] = useState<{
     target: string;
+    targetType: "link" | "username";
+    entityType: "channel" | "group" | "account";
     violationType: string;
     description: string;
     evidence: string;
@@ -94,16 +99,22 @@ export default function ReportPage() {
         }
         break;
       case 2:
+        // Target details step - no validation needed, just selection
+        break;
+      case 3:
         if (!formData.violationType) {
           setError("Type of violation is required");
           return false;
         }
         break;
-      case 3:
+      case 4:
         if (!formData.description.trim()) {
           setError("Description is required");
           return false;
         }
+        break;
+      case 5:
+        // Evidence step - no validation needed, optional fields
         break;
     }
     setError("");
@@ -115,7 +126,7 @@ export default function ReportPage() {
       return;
     }
 
-    if (currentStep === 4) {
+    if (currentStep === 5) {
       try {
         setSubmitting(true);
         setError("");
@@ -128,9 +139,16 @@ export default function ReportPage() {
           body: JSON.stringify(formData),
         });
 
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: "Failed to generate complaint" }));
+          setError(errorData.error || `Server error: ${response.status}`);
+          setSubmitting(false);
+          return;
+        }
+
         const data = await response.json();
 
-        if (response.ok) {
+        if (data.success && data.complaint) {
           const complaint = {
             subject: data.complaint.subject,
             body: data.complaint.body,
@@ -138,13 +156,14 @@ export default function ReportPage() {
           setGeneratedComplaint(complaint);
           setEditableSubject(complaint.subject);
           setEditableBody(complaint.body);
-          setReportDataForSave(data.reportData);
-          setCurrentStep(5);
+          setReportDataForSave(data.reportData || formData);
+          setCurrentStep(6);
         } else {
           setError(data.error || "Failed to generate complaint");
         }
-      } catch (err) {
-        setError("Network error. Please try again.");
+      } catch (err: any) {
+        console.error("Error generating complaint:", err);
+        setError(err.message || "Network error. Please try again.");
       } finally {
         setSubmitting(false);
       }
@@ -182,6 +201,8 @@ export default function ReportPage() {
         },
         body: JSON.stringify({
           ...reportDataForSave,
+          targetType: formData.targetType,
+          entityType: formData.entityType,
           complaintSubject: editableSubject.trim(),
           complaintBody: editableBody.trim(),
         }),
@@ -287,6 +308,8 @@ export default function ReportPage() {
                 setTimeout(() => {
                   setFormData({
                     target: "",
+                    targetType: "username",
+                    entityType: "account",
                     violationType: "",
                     description: "",
                     evidence: "",
@@ -451,6 +474,47 @@ export default function ReportPage() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -20 }}
                         transition={{ duration: 0.3 }}
+                        className="space-y-6"
+                      >
+                        <div className="space-y-2">
+                          <Label className="text-white">Target Type</Label>
+                          <Select
+                            value={formData.targetType}
+                            onChange={(e) => setFormData({ ...formData, targetType: e.target.value as "link" | "username" })}
+                            className="bg-[#0a0a0a] border-gray-800 text-white"
+                          >
+                            <option value="username">Username (e.g., @username)</option>
+                            <option value="link">Link (e.g., https://t.me/channel)</option>
+                          </Select>
+                          <p className="text-xs text-gray-500">
+                            Select whether you entered a username or a link.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white">Entity Type</Label>
+                          <Select
+                            value={formData.entityType}
+                            onChange={(e) => setFormData({ ...formData, entityType: e.target.value as "channel" | "group" | "account" })}
+                            className="bg-[#0a0a0a] border-gray-800 text-white"
+                          >
+                            <option value="account">Account / User</option>
+                            <option value="channel">Channel</option>
+                            <option value="group">Group</option>
+                          </Select>
+                          <p className="text-xs text-gray-500">
+                            Select what type of Telegram entity you are reporting.
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {currentStep === 3 && (
+                      <motion.div
+                        key="step3"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ duration: 0.3 }}
                         className="space-y-4"
                       >
                         <div className="space-y-2">
@@ -472,9 +536,9 @@ export default function ReportPage() {
                       </motion.div>
                     )}
 
-                    {currentStep === 3 && (
+                    {currentStep === 4 && (
                       <motion.div
-                        key="step3"
+                        key="step4"
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -20 }}
@@ -498,7 +562,7 @@ export default function ReportPage() {
                       </motion.div>
                     )}
 
-                    {currentStep === 4 && (
+                    {currentStep === 5 && (
                       <motion.div
                         key="step4"
                         initial={{ opacity: 0, x: 20 }}
@@ -536,7 +600,7 @@ export default function ReportPage() {
                       </motion.div>
                     )}
 
-                    {currentStep === 5 && generatedComplaint && (
+                    {currentStep === 6 && generatedComplaint && (
                       <motion.div
                         key="step5"
                         initial={{ opacity: 0, x: 20 }}
@@ -585,21 +649,21 @@ export default function ReportPage() {
                       type="button"
                       variant="outline"
                       onClick={handleBack}
-                      disabled={currentStep === 1 || submitting || sending}
+                      disabled={currentStep === 1 || submitting || sending || currentStep === 6}
                       className="gap-2 border-gray-800 text-white hover:bg-gray-900"
                     >
                       <ArrowLeft className="w-4 h-4" />
                       Back
                     </Button>
                     <div className="flex gap-3">
-                      {currentStep < 5 ? (
+                      {currentStep < 6 ? (
                         <Button
                           type="button"
                           onClick={handleNext}
                           disabled={submitting}
                           className="gap-2 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600"
                         >
-                          {submitting ? "Generating..." : currentStep === 4 ? "Generate Complaint" : "Next"}
+                          {submitting ? "Generating..." : currentStep === 5 ? "Generate Complaint" : "Next"}
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       ) : (

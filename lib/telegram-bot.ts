@@ -72,7 +72,9 @@ export function formatAutoBanNotification(
 export function formatNewReportNotification(
   target: string,
   reportId: string,
-  violationType: string
+  violationType: string,
+  entityType?: "channel" | "group" | "account",
+  targetType?: "link" | "username"
 ): string {
   // Extract username from target (handle @username or https://t.me/username)
   let username = target.trim();
@@ -85,8 +87,12 @@ export function formatNewReportNotification(
     username = "@" + username;
   }
 
+  const entityLabel = entityType === "channel" ? "Channel" : entityType === "group" ? "Group" : "Account";
+  const typeLabel = targetType === "link" ? "Link" : "Username";
+
   return `📝 <b>New Report Submitted</b>\n\n` +
     `Target: <code>${username}</code>\n` +
+    `Type: ${typeLabel} (${entityLabel})\n` +
     `Violation: ${violationType}\n` +
     `Report ID: <code>${reportId}</code>\n` +
     `Time: ${new Date().toLocaleString()}`;
