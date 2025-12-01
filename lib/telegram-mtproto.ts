@@ -7,6 +7,14 @@ let clientInstance: TelegramClient | null = null;
 let isConnecting = false;
 let connectionPromise: Promise<TelegramClient> | null = null;
 
+/**
+ * Status classification for target availability:
+ * - "active": Target is resolvable and accessible
+ * - "banned": Target is banned, deleted, or permanently unavailable
+ * - "unknown": Temporary issue (rate limit, network error) - cannot determine status
+ */
+export type TargetStatus = "active" | "banned" | "unknown";
+
 export interface MTProtoChatDetails {
   id: string | number;
   type: "private" | "group" | "supergroup" | "channel";
@@ -16,8 +24,11 @@ export interface MTProtoChatDetails {
   lastName?: string;
   membersCount?: number;
   description?: string;
-  isBanned: boolean;
+  isBanned: boolean; // Deprecated: use status instead
+  status: TargetStatus; // Primary status indicator
   error?: string;
+  errorCode?: string; // MTProto error code if available
+  retryAfterSeconds?: number; // For FLOOD_WAIT errors
   // User-specific fields
   isBot?: boolean;
   isScam?: boolean;
@@ -121,6 +132,7 @@ export async function getMTProtoChatDetails(
         id: target,
         type: "channel",
         isBanned: false,
+        status: "unknown",
         error: "Invalid username: username is empty",
       };
     }
@@ -138,6 +150,7 @@ export async function getMTProtoChatDetails(
       if (entity instanceof Api.User) {
         const username = entity.username || undefined;
         const link = username ? `https://t.me/${username}` : undefined;
+        const isDeleted = entity.deleted || false;
         
         return {
           id: entity.id.toString(),
@@ -145,7 +158,8 @@ export async function getMTProtoChatDetails(
           firstName: entity.firstName || undefined,
           lastName: entity.lastName || undefined,
           username,
-          isBanned: entity.deleted || false,
+          isBanned: isDeleted,
+          status: isDeleted ? "banned" : "active",
           description: undefined,
           isBot: entity.bot || false,
           isScam: entity.scam || false,
@@ -181,6 +195,7 @@ export async function getMTProtoChatDetails(
           membersCount,
           description: undefined, // Channel description requires additional API call
           isBanned: false, // If we can get it, it's not banned
+          status: "active", // Successfully resolved = active
           isVerified: entity.verified || false,
           isScam: entity.scam || false,
           isFake: entity.fake || false,
@@ -196,6 +211,7 @@ export async function getMTProtoChatDetails(
           type: "group",
           title: entity.title || undefined,
           isBanned: false,
+          status: "active",
         };
       }
 
@@ -206,7 +222,9 @@ export async function getMTProtoChatDetails(
           type: "group",
           title: entity.title || undefined,
           isBanned: true,
+          status: "banned",
           error: "Chat is forbidden (banned)",
+          errorCode: "CHAT_FORBIDDEN",
         };
       }
 
@@ -217,7 +235,9 @@ export async function getMTProtoChatDetails(
           type: "channel",
           title: entity.title || undefined,
           isBanned: true,
+          status: "banned",
           error: "Channel is forbidden (banned)",
+          errorCode: "CHANNEL_FORBIDDEN",
         };
       }
 
@@ -226,6 +246,7 @@ export async function getMTProtoChatDetails(
         id: entityId,
         type: "channel",
         isBanned: false,
+        status: "unknown",
         error: "Unknown entity type",
       };
     } catch (error: any) {
@@ -234,15 +255,57 @@ export async function getMTProtoChatDetails(
       const errorCode = error?.code || error?.errorCode || "";
       const errorType = error?.constructor?.name || "";
 
-      // Comprehensive ban detection - check multiple error patterns
+      // Extract FLOOD_WAIT seconds if present
+      let retryAfterSeconds: number | undefined;
+      const floodMatch = errorMessage.match(/wait of (\d+) seconds/i);
+      if (floodMatch) {
+        retryAfterSeconds = parseInt(floodMatch[1]);
+      }
+
+      /**
+       * STATUS CLASSIFICATION LOGIC:
+       * 
+       * "banned" status is used for:
+       * - USERNAME_NOT_OCCUPIED, USERNAME_INVALID, CHANNEL_INVALID
+       * - PEER_ID_INVALID, INPUT_USER_DEACTIVATED
+       * - USER_DELETED, USER_BANNED_IN_CHANNEL
+       * - CHAT_ADMIN_REQUIRED (when cannot access at all)
+       * - Any "not found" errors (404, entity not found)
+       * 
+       * "unknown" status is used for:
+       * - FLOOD_WAIT / rate limiting (420, 429)
+       * - Temporary network/connection errors
+       * - Auth errors that might be temporary
+       * 
+       * "active" status is only used when:
+       * - Entity is successfully resolved and accessible
+       */
+
+      // Check for FLOOD_WAIT / rate limiting (temporary - should be "unknown")
+      if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429 || errorCode === 420) {
+        return {
+          id: entityId,
+          type: "channel",
+          username: entityId,
+          isBanned: false,
+          status: "unknown",
+          error: `Rate limited: ${errorMessage}`,
+          errorCode: errorCode || "FLOOD_WAIT",
+          retryAfterSeconds,
+        };
+      }
+
+      // Check for banned/unavailable errors (permanent - should be "banned")
       const isBannedError = 
-        errorMessage.includes("not found") ||
         errorMessage.includes("USERNAME_NOT_OCCUPIED") ||
         errorMessage.includes("USERNAME_INVALID") ||
-        errorMessage.includes("USERNAME_NOT_OCCUPIED") ||
         errorMessage.includes("CHANNEL_INVALID") ||
         errorMessage.includes("PEER_ID_INVALID") ||
         errorMessage.includes("INPUT_USER_DEACTIVATED") ||
+        errorMessage.includes("USER_DELETED") ||
+        errorMessage.includes("USER_BANNED_IN_CHANNEL") ||
+        errorMessage.includes("CHANNEL_PUBLIC_GROUP_NA") ||
+        errorMessage.includes("not found") ||
         errorCode === 400 || // Bad Request often means invalid/banned
         errorCode === 404 || // Not Found
         errorType === "UsernameNotOccupiedError" ||
@@ -250,46 +313,58 @@ export async function getMTProtoChatDetails(
         (errorMessage.includes("username") && errorMessage.includes("invalid")) ||
         (errorMessage.includes("channel") && errorMessage.includes("invalid"));
 
-      // If entity not found, it might be banned or doesn't exist
-      if (isBannedError && !errorMessage.includes("FLOOD_WAIT")) {
+      if (isBannedError) {
         return {
           id: entityId,
           type: "channel",
           username: entityId,
           isBanned: true,
-          error: "Entity not found (likely banned or doesn't exist)",
+          status: "banned",
+          error: `Entity not found or unavailable: ${errorMessage}`,
+          errorCode: errorCode || "NOT_FOUND",
         };
       }
 
-      // For private users/channels, we might not have access
+      // Check for private/inaccessible (could be active but private, or could be banned)
+      // If we can't access it and it's not explicitly private, treat as banned
+      if (
+        errorMessage.includes("CHAT_ADMIN_REQUIRED") &&
+        !errorMessage.includes("CHANNEL_PRIVATE") &&
+        !errorMessage.includes("PRIVACY")
+      ) {
+        // Admin required but not private = likely banned/inaccessible
+        return {
+          id: entityId,
+          type: "channel",
+          username: entityId,
+          isBanned: true,
+          status: "banned",
+          error: "Chat inaccessible (admin required)",
+          errorCode: "CHAT_ADMIN_REQUIRED",
+        };
+      }
+
+      // Private but might still be active (just not accessible)
       if (
         errorMessage.includes("private") ||
         errorMessage.includes("PRIVACY") ||
         errorMessage.includes("CHANNEL_PRIVATE") ||
-        errorMessage.includes("CHAT_ADMIN_REQUIRED") ||
         errorMessage.includes("USER_PRIVACY_RESTRICTED")
       ) {
+        // Private channels/users might still be active, but we can't verify
+        // Treat as "unknown" since we can't determine actual status
         return {
           id: entityId,
           type: "channel",
           username: entityId,
           isBanned: false,
-          error: "Private entity (cannot access without being a member)",
+          status: "unknown",
+          error: "Private entity (cannot verify status without access)",
+          errorCode: "PRIVATE",
         };
       }
 
-      // Rate limiting - not a ban, just need to wait
-      if (errorMessage.includes("FLOOD_WAIT") || errorCode === 429) {
-        return {
-          id: entityId,
-          type: "channel",
-          username: entityId,
-          isBanned: false,
-          error: "Rate limited - please try again later",
-        };
-      }
-
-      // Other errors - log for debugging
+      // Other errors - treat as unknown (temporary issues)
       console.warn(`Error getting entity ${target}:`, {
         message: errorMessage,
         code: errorCode,
@@ -301,16 +376,26 @@ export async function getMTProtoChatDetails(
         type: "channel",
         username: entityId,
         isBanned: false,
+        status: "unknown",
         error: errorMessage || "Unknown error",
+        errorCode: errorCode || "UNKNOWN",
       };
     }
   } catch (error: any) {
     console.error("Error in getMTProtoChatDetails:", error);
+    const errorMessage = error?.message || error?.toString() || "";
+    
+    // Check if it's a FLOOD_WAIT error
+    const floodMatch = errorMessage.match(/wait of (\d+) seconds/i);
+    const retryAfterSeconds = floodMatch ? parseInt(floodMatch[1]) : undefined;
+    
     return {
       id: target,
       type: "channel",
       isBanned: false,
-      error: error.message || "Failed to get chat details via MTProto",
+      status: errorMessage.includes("FLOOD_WAIT") ? "unknown" : "unknown",
+      error: errorMessage || "Failed to get chat details via MTProto",
+      retryAfterSeconds,
     };
   } finally {
     // For serverless, disconnect after use to free resources
@@ -328,14 +413,25 @@ export async function getMTProtoChatDetails(
 
 /**
  * Check if a username/channel is banned or unavailable using MTProto
+ * Returns status classification: "active", "banned", or "unknown"
  */
 export async function checkMTProtoUsernameStatus(
   target: string
-): Promise<{ isBanned: boolean; error?: string; details?: MTProtoChatDetails }> {
+): Promise<{ 
+  isBanned: boolean; // Deprecated: use status instead
+  status: TargetStatus; // Primary status indicator
+  error?: string; 
+  errorCode?: string;
+  retryAfterSeconds?: number;
+  details?: MTProtoChatDetails 
+}> {
   const details = await getMTProtoChatDetails(target);
   return {
     isBanned: details.isBanned,
+    status: details.status,
     error: details.error,
+    errorCode: details.errorCode,
+    retryAfterSeconds: details.retryAfterSeconds,
     details,
   };
 }

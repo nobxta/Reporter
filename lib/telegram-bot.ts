@@ -111,12 +111,16 @@ export async function getChatDetails(
     return await getMTProtoChatDetails(target);
   } catch (error: any) {
     console.error("Error in getChatDetails (MTProto):", error);
-    // Fallback: return error response
+    const errorMessage = error?.message || "Failed to get chat details";
+    const isFloodWait = errorMessage.includes("FLOOD_WAIT");
+    
+    // Fallback: return error response with unknown status
     return {
       id: target,
       type: "channel",
       isBanned: false,
-      error: error.message || "Failed to get chat details",
+      status: isFloodWait ? "unknown" : "unknown",
+      error: errorMessage,
     };
   }
 }
@@ -126,26 +130,38 @@ export async function getChatDetails(
  * Uses MTProto (GramJS) for better username resolution
  * @param botToken Telegram bot token (kept for API compatibility, but not used)
  * @param target Username or channel link (e.g., @username or https://t.me/channel)
- * @returns Object with isBanned status and error message if any
+ * @returns Object with status classification and error message if any
  */
 export async function checkUsernameStatus(
   botToken: string,
   target: string
-): Promise<{ isBanned: boolean; error?: string; details?: ChatDetails }> {
+): Promise<{ 
+  isBanned: boolean; // Deprecated: use status instead
+  status: "active" | "banned" | "unknown";
+  error?: string;
+  errorCode?: string;
+  retryAfterSeconds?: number;
+  details?: ChatDetails 
+}> {
   // Use MTProto for username checking (works better than Bot API)
   try {
     return await checkMTProtoUsernameStatus(target);
   } catch (error: any) {
     console.error("Error in checkUsernameStatus (MTProto):", error);
-    // Fallback: return error response
+    const errorMessage = error?.message || "Failed to check username status";
+    const isFloodWait = errorMessage.includes("FLOOD_WAIT");
+    
+    // Fallback: return error response with unknown status
     return {
       isBanned: false,
-      error: error.message || "Failed to check username status",
+      status: isFloodWait ? "unknown" : "unknown",
+      error: errorMessage,
       details: {
         id: target,
         type: "channel",
         isBanned: false,
-        error: error.message || "Failed to check username status",
+        status: isFloodWait ? "unknown" : "unknown",
+        error: errorMessage,
       },
     };
   }

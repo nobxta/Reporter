@@ -123,6 +123,8 @@ export async function GET(request: NextRequest) {
       reportId: string;
       target: string;
       status: string;
+      reason?: string;
+      errorCode?: string;
     }> = [];
 
     // Check each report
@@ -139,9 +141,15 @@ export async function GET(request: NextRequest) {
           .map(t => t.trim())
           .filter(t => t.length > 0);
 
-        let allBanned = true;
+        let reportStatus: "active" | "banned" | "unknown" = "active";
         let anyBanned = false;
-        const targetResults: Array<{ target: string; isBanned: boolean }> = [];
+        let anyUnknown = false;
+        const targetResults: Array<{ 
+          target: string; 
+          status: "active" | "banned" | "unknown";
+          reason?: string;
+          errorCode?: string;
+        }> = [];
 
         // Check each target in the report
         for (const target of targets) {
@@ -149,32 +157,87 @@ export async function GET(request: NextRequest) {
             console.log(`[Check Reports] Checking target: ${target}`);
             const checkResult = await checkUsernameStatus(botToken, target);
             
+            const targetStatus = checkResult.status || (checkResult.isBanned ? "banned" : "active");
+            
             targetResults.push({
               target,
-              isBanned: checkResult.isBanned,
+              status: targetStatus,
+              reason: checkResult.error,
+              errorCode: checkResult.errorCode,
             });
 
-            if (checkResult.isBanned) {
+            // Log based on actual status
+            if (targetStatus === "banned") {
               anyBanned = true;
-              console.log(`[Check Reports] ✅ Target banned: ${target}`);
+              console.log(`[Check Reports] 🔴 Target unavailable: ${target} (banned, ${checkResult.errorCode || checkResult.error || "not found"})`);
+            } else if (targetStatus === "unknown") {
+              anyUnknown = true;
+              const retryInfo = checkResult.retryAfterSeconds 
+                ? `, retry after ${checkResult.retryAfterSeconds}s`
+                : "";
+              console.log(`[Check Reports] 🟡 Target unknown (rate limited): ${target} (${checkResult.error || checkResult.errorCode || "unknown"}${retryInfo})`);
             } else {
-              allBanned = false;
-              console.log(`[Check Reports] 🟢 Target active: ${target}`, {
-                error: checkResult.error,
-                type: checkResult.details?.type,
-              });
+              // targetStatus === "active"
+              console.log(`[Check Reports] 🟢 Target active: ${target} (${checkResult.details?.type || "resolved"})`);
             }
 
             // Small delay between targets to avoid rate limiting
             await new Promise((resolve) => setTimeout(resolve, 1000));
           } catch (targetError: any) {
             console.error(`[Check Reports] Error checking target ${target}:`, targetError);
-            allBanned = false;
+            // Treat exceptions as unknown (temporary issue)
+            anyUnknown = true;
             targetResults.push({
               target,
-              isBanned: false,
+              status: "unknown",
+              reason: targetError.message || "Exception during check",
+              errorCode: "EXCEPTION",
             });
           }
+        }
+
+        /**
+         * STATUS MAPPING LOGIC:
+         * 
+         * Report status is determined by target statuses:
+         * - If ANY target is "banned" → report status = "banned"
+         * - If ALL targets are "active" → report status = "active"
+         * - If any target is "unknown" but none are "banned" → report status = "unknown"
+         * 
+         * Banned counter increments only when:
+         * - At least one target has status "banned" (permanently unavailable)
+         * - Does NOT increment for "unknown" (temporary issues like rate limits)
+         * 
+         * MTProto ERROR CLASSIFICATION:
+         * 
+         * Maps to "banned" status:
+         * - USERNAME_NOT_OCCUPIED, USERNAME_INVALID, CHANNEL_INVALID
+         * - PEER_ID_INVALID, INPUT_USER_DEACTIVATED
+         * - USER_DELETED, USER_BANNED_IN_CHANNEL
+         * - CHANNEL_PUBLIC_GROUP_NA
+         * - CHAT_ADMIN_REQUIRED (when not explicitly private)
+         * - Any "not found" errors (404, entity not found)
+         * - Error codes: 400, 404
+         * 
+         * Maps to "unknown" status:
+         * - FLOOD_WAIT errors (rate limiting)
+         * - Error codes: 420, 429
+         * - Private entities (cannot verify without access)
+         * - Temporary network/connection errors
+         * - Auth errors that might be temporary
+         * 
+         * Maps to "active" status:
+         * - Successfully resolved entities (Api.User, Api.Channel, Api.Chat)
+         * - Entities that are accessible and not deleted/banned
+         */
+        
+        // Determine overall report status
+        if (anyBanned) {
+          reportStatus = "banned";
+        } else if (anyUnknown) {
+          reportStatus = "unknown";
+        } else {
+          reportStatus = "active";
         }
 
         // If any target is banned, mark the report as banned
@@ -183,7 +246,7 @@ export async function GET(request: NextRequest) {
 
           // Send notification with details
           const bannedTargets = targetResults
-            .filter(tr => tr.isBanned)
+            .filter(tr => tr.status === "banned")
             .map(tr => tr.target)
             .join(", ");
           
@@ -195,20 +258,25 @@ export async function GET(request: NextRequest) {
           await sendTelegramNotification(botToken, chatId, notification);
 
           bannedCount++;
-          results.push({
-            reportId: report.id,
-            target: report.target,
-            status: "banned",
-          });
-
           console.log(`[Check Reports] ✅ Report marked as banned: ${report.id}`);
-        } else {
-          results.push({
-            reportId: report.id,
-            target: report.target,
-            status: "active",
-          });
+        }
+
+        // Add result with proper status
+        const primaryReason = targetResults.find(tr => tr.status === reportStatus)?.reason;
+        const primaryErrorCode = targetResults.find(tr => tr.status === reportStatus)?.errorCode;
+        
+        results.push({
+          reportId: report.id,
+          target: report.target,
+          status: reportStatus,
+          reason: primaryReason,
+          errorCode: primaryErrorCode,
+        });
+
+        if (reportStatus === "active") {
           console.log(`[Check Reports] 🟢 Report still active: ${report.id}`);
+        } else if (reportStatus === "unknown") {
+          console.log(`[Check Reports] 🟡 Report status unknown (rate limited/temporary): ${report.id}`);
         }
 
         checkedCount++;
@@ -221,6 +289,7 @@ export async function GET(request: NextRequest) {
           reportId: report.id,
           target: report.target,
           status: "error",
+          reason: error.message || "Exception during report check",
         });
       }
     }
