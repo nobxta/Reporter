@@ -471,7 +471,8 @@ export async function getMTProtoChatDetails(
       isBanned: false,
       status: "unknown",
       error: errorMessage || "Failed to get chat details via MTProto",
-      retryAfterSeconds,
+      // Only include retryAfterSeconds if seconds is defined (for non-FLOOD errors that might have a wait time)
+      ...(typeof seconds === "number" && seconds > 0 ? { retryAfterSeconds: seconds } : {}),
     };
   } finally {
     // For serverless, disconnect after use to free resources
